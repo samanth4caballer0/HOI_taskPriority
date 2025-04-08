@@ -100,22 +100,22 @@ def jacobian(T, revolute):
     '''
     # 1. Initialize J and O.
     J = np.zeros((6,len(revolute)))
-    z_pre = T[0][0:3,2].reshape(1,3)
-    o_pre = T[0][0:3,3].reshape(1,3)
+    # z_pre = T[0][0:3,2].reshape(1,3)
+    # o_pre = T[0][0:3,3].reshape(1,3)
     
-    o_n = T[-1][0:3,3].reshape(1,3)
+    # o_n = T[-1][0:3,3].reshape(1,3)
 
-    # 2. For each joint of the robot
-    for index in range(1,len(T)):
-        #   a. Extract z and o.
-        z = T[index][0:3,2].reshape(1,3)
-        o = T[index][0:3,3].reshape(1,3)
-        #   b. Check joint type.
-        #   c. Modify corresponding column of J.
-        J[:,index-1] = np.block([int(revolute[index-1])*np.cross(z_pre, o_n - o_pre) + (1 - int(revolute[index-1]))*z_pre, int(revolute[index-1])*z_pre])
-        #   d. Set z and o for next joint
-        z_pre = z
-        o_pre = o
+    # # 2. For each joint of the robot
+    # for index in range(1,len(T)):
+    #     #   a. Extract z and o.
+    #     z = T[index][0:3,2].reshape(1,3)
+    #     o = T[index][0:3,3].reshape(1,3)
+    #     #   b. Check joint type.
+    #     #   c. Modify corresponding column of J.
+    #     J[:,index-1] = np.block([int(revolute[index-1])*np.cross(z_pre, o_n - o_pre) + (1 - int(revolute[index-1]))*z_pre, int(revolute[index-1])*z_pre])
+    #     #   d. Set z and o for next joint
+    #     z_pre = z
+    #     o_pre = o
 
     return J
 

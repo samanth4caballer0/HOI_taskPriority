@@ -58,7 +58,7 @@ class TP_controller:
         # Set rotation (180° around X-axis)
         static_transform.transform.rotation.x = 0.0  # sin(π/2) = 1.0
         static_transform.transform.rotation.y = 0.0
-        static_transform.transform.rotation.z = -0.7071  # sin(π/4) = 0.7071
+        static_transform.transform.rotation.z = 0.7071  # sin(π/4) = 0.7071
         static_transform.transform.rotation.w = 0.7071  # sin(π/4) = 0.7071
         
         # Broadcast the transform
@@ -118,11 +118,11 @@ class MobileManipulator:
         self.bmz = 0.198 
         self.bmx = 0.0507 
         
-        self.mx = 0.0565
+        self.mx = 0.0565    #distance between the end effector joint (j4) and link 2
         self.mz = 0.0722
         
-        d1 = 0.1420
-        d2 = 0.1588
+        d1 = 0.1420     #link 1 length 
+        d2 = 0.1588     #link 2 length
         
         # Calculate the lengths of the manipulator arm segments
         l1_x = d1 * sin(-q2)    #projection of d1 on x-axis
@@ -131,12 +131,12 @@ class MobileManipulator:
         
         
         #forward kinematics to get ee position
-        x = l * cos(q1) + self.bmx
-        y = l * sin(q1) + self.bmx
-        z = (-self.bz - (d1 * cos(-q2)) - (d2 * sin(q3)) + self.mx - self.bmz) 
+        x = l * cos(q1)  #- self.bx
+        y = l * sin(q1)  
+        z = (-self.bz - (d1 * cos(-q2)) - (d2 * sin(q3)) + self.mz - self.bmz) 
         yaw = q1 + q4 + alpha
         
-        return x, y, z, yaw
+        return x, y, z, yaw #ee pose 
     
         
     
