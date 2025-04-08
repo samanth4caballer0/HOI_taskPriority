@@ -1,0 +1,8 @@
+<launch>
+    <!-- Include a launch file from another package -->
+    <include file="$(find turtlebot_simulation)/launch/turtlebot_hoi.launch" />
+
+    <!-- Start a node from the current package -->
+    <node pkg="HOI_taskPriority" type="TP_control_node" name="TP_control_node" output="screen" />
+</launch>
+
