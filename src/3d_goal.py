@@ -12,13 +12,14 @@ class ArmGoalPublisher:
 
         self.goalPublisher = rospy.Publisher('/desired_sigma', PoseStamped, queue_size=10)
         
-        self.goal_vector = [[0.5, 0.5, 0.5, 0],[0.2, 0.2, 0.2, 0],[0.3, 0.3, 0.3, np.pi]]
+        self.goal_vector = [[0.2, 0.0, -0.05, 0],[0.1, 0.2, -0.05, 0], [0.1, -0.2, -0.05, 0],[0.1, 0.2, -0.2, 0]]
 
-        rospy.Timer(rospy.Duration(0.1), self.publishgoal)
-
+        rospy.Timer(rospy.Duration(5), self.publishgoal)
+ 
         
-    def publishgoal(self):
+    def publishgoal(self,_):
         if len(self.goal_vector) > 0:
+            print ("Publishing goal: ", self.goal_vector[0])
             goal = self.goal_vector.pop(0)
             pose = PoseStamped()
             pose.header.stamp = rospy.Time.now()
