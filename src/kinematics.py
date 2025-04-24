@@ -1,11 +1,14 @@
 import tf2_ros
 import rospy
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped
+from std_msgs.msg import Float64MultiArray
+from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped, Twist
 from sensor_msgs.msg import JointState
 from math import sin, cos
 import tf
 import numpy as np
+import sympy as sp 
+
 
 class TP_controller:
     def __init__(self):
@@ -16,8 +19,11 @@ class TP_controller:
         self.MM = MobileManipulator() 
         #self.ee_pub = rospy.Publisher('/end_effector', Odometry, queue_size=10)
         self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)
+        self.joint_velocity_pub = rospy.Publisher('/swiftpro/joint_velocity_controller/command', Float64MultiArray, queue_size=10)
         # Timer for TP controller (Velocity Commands)
         rospy.Subscriber('/swiftpro/joint_states', JointState, self.joint_pos_callback)
+        rospy.Subscriber('/swiftpro/ee_velocity', Twist, self.vel_controller)
+
         rospy.Timer(rospy.Duration(0.1), self.visualize)
         
 
@@ -88,6 +94,41 @@ class TP_controller:
         #store it as a variable 
             self.MM.q = joint_pos.reshape(4,1)
             
+            
+    def vel_controller(self,msg):
+        dq  = np.zeros((self.MM.dof, 1))
+        
+        desired_vel = np.zeros((4, 1))
+        desired_vel[0,0] = msg.linear.x
+        desired_vel[1,0] = msg.linear.y
+        desired_vel[2,0] = msg.linear.z
+        desired_vel[3,0] = msg.angular.z
+        
+        J = self.MM.get_armJacobian()
+        
+        # dq = np.linalg.pinv(J) @ desired_vel
+        dq = self.weighted_DLS(J,0.004) @ desired_vel
+
+        
+        # publish the joint velocity command
+        joint_velocity = Float64MultiArray()
+        joint_velocity.data = dq.flatten().tolist()
+
+        self.joint_velocity_pub.publish(joint_velocity)
+        
+       
+    def weighted_DLS(self,A, damping):
+        '''
+            Function computes the damped least-squares (DLS) solution to the matrix inverse problem.
+
+            Arguments:
+            A (Numpy array): matrix to be inverted
+            damping (double): damping factor
+
+            Returns:
+            (Numpy array): inversion of the input matrix
+        '''
+        return  A.T @ np.linalg.inv(A  @ A.T + damping**2 * np.eye(np.shape(A)[0], np.shape(A)[0]))
 
 
 class MobileManipulator:
@@ -152,6 +193,71 @@ class MobileManipulator:
         return x, y, z, yaw
     
     
+    def get_armJacobian(self):
+        # deifne symbolic variables
+        q1, q2, q3, q4 = sp.symbols('q1 q2 q3 q4')
+        
+        
+        # define symbolic transformation matrices  
+        q = sp.Matrix([q1, q2, q3, q4])
+        
+        # define links lenghts (arm constants)
+        l1 = 0.1420
+        l2 = 0.1588
+        
+        self.bx = 0.0132
+        self.bz = 0.108
+
+        #
+        self.bmz = 0 # 0.198        # z-distance offset of the arm base frame from the robot base frame
+        self.bmx = 0 # 0.0507       # x-distance from the robot base frame to arm base frame
+        
+        # end effector offsets
+        self.mx = 0.0565  
+        self.mz = 0.0722
+
+        # Calculate the lengths of the manipulator arm segments
+        l1_x = l1 * sp.sin(-q2)    #projection of d1 on x-axis
+        l2_x = l2 * sp.cos(q3)     #projection of d2 on x-axis
+        l = (self.bx + (l1_x) + (l2_x) + self.mx) #diagonal between the base and the end effector
+        
+        
+        #forward kinematics to get ee position
+        x = l * sp.cos(q1)
+        y = l * sp.sin(q1) 
+        z = (-self.bz - (l1 * sp.cos(-q2)) - (l2 * sp.sin(q3)) + self.mz - self.bmz) 
+        yaw = q1 + q4 
+        
+        # task vector 
+        task_vector = sp.Matrix([x, y, z, yaw])
+        # Jacobian matrix
+        J_eq = task_vector.jacobian(q)
+        
+        q_values = {
+            q1: float(self.q[0,0]),
+            q2: float(self.q[1,0]),
+            q3: float(self.q[2,0]),
+            q4: float(self.q[3,0])
+        }
+        
+        q_values_manual = {
+            q1: 0.0,
+            q2: 0.0,
+            q3: 0.0,
+            q4: 0.0
+        }
+        
+        J_num_manual = J_eq.subs(q_values_manual)
+        print("Jacobian at q = 0: ", J_num_manual)
+        
+        # Substitute numerical values
+        J_num = J_eq.subs(q_values)
+
+        # Convert to NumPy array for numerical operations
+        J = np.array(J_num).astype(np.float64)
+                
+
+        return J
     
         
     

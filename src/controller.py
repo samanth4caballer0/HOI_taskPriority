@@ -4,7 +4,8 @@ import ros
 
 class Controller:
     
-    def __init__(self):
+    def __init__(self, robot):
+        self.robot = robot
         self.q = np.zeros(4)
         self.J = np.zeros((4, 4))
         
@@ -48,4 +49,54 @@ class Controller:
         J = task_vector.jacobian(q)        
 
         return J 
+    
+    def weighted_DLS(A, damping, Weight):
+        '''
+            Function computes the damped least-squares (DLS) solution to the matrix inverse problem.
 
+            Arguments:
+            A (Numpy array): matrix to be inverted
+            damping (double): damping factor
+
+            Returns:
+            (Numpy array): inversion of the input matrix
+        '''
+        return np.linalg.inv(Weight) @ A.T @ np.linalg.inv(A @ np.linalg.inv(Weight) @ A.T + damping**2 * np.eye(np.shape(A)[0], np.shape(A)[0]))
+
+    def controller(self, q, qd, qdd):
+        
+        ### Recursive Task-Priority algorithm (w/set-based tasks)
+        # The algorithm works in the same way as in Lab4. 
+        # The only difference is that it checks if a task is active.
+        # Initialize null-space projector
+        P  = np.eye(self.robot.dof, self.robot.dof)
+        
+        # Initialize output vector (joint velocity)
+        dq  = np.zeros((self.robot.dof, 1))
+        for i in range(len(self.tasks)):      
+            # Update task state
+            self.tasks[i].update(self.robot)
+            if self.tasks[i].isActive() != 0:
+                # Compute augmented Jacobian
+                Jbar    = self.tasks[i].J @ P 
+                # Compute task velocity
+                # Accumulate velocity
+                dq      = dq + (Jbar, 0.01, self.weight_matrix) @ (self.tasks[i].isActive() * self.tasks[i].err - self.tasks[i].J @ dq) 
+                # Update null-space projector
+                P       = P - (Jbar, 0.0001, self.weight_matrix) @ Jbar  
+            else:
+                dq      = dq
+                P       = P 
+        return dq
+    
+    def vel_controller(self, q, qd, qdd):
+        dq  = np.zeros((self.robot.dof, 1))
+        
+        desired_vel = np.zeros((self.robot.dof, 1))
+        
+        return dq
+    
+    def set_weightMatrix(self, value):
+        self.weight_matrix = value
+    
+    
