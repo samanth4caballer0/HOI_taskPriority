@@ -12,9 +12,9 @@ class ArmGoalPublisher:
 
         self.goalPublisher = rospy.Publisher('/desired_sigma', PoseStamped, queue_size=10)
         
-        self.goal_vector = [[0.2, 0.0, -0.05, 0],[0.1, 0.2, -0.05, 0], [0.1, -0.2, -0.05, 0],[0.1, 0.2, -0.2, 0]]
+        self.goal_vector = [[0.2, 0.0, -0.25, 0.1],[0.3, 0.2, -0.16, 0.5], [-0.3, -0.2, -0.34, 0.05],[0.1, 0.0, -0.3, -0.3]]
 
-        rospy.Timer(rospy.Duration(5), self.publishgoal)
+        rospy.Timer(rospy.Duration(20), self.publishgoal)
  
         
     def publishgoal(self,_):
@@ -23,7 +23,7 @@ class ArmGoalPublisher:
             goal = self.goal_vector.pop(0)
             pose = PoseStamped()
             pose.header.stamp = rospy.Time.now()
-            pose.header.frame_id = 'swiftpro/manipulator_base_link'
+            pose.header.frame_id = 'world_ned'
             pose.pose.position.x = goal[0]
             pose.pose.position.y = goal[1]
             pose.pose.position.z = goal[2]            

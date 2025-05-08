@@ -25,6 +25,9 @@ class TP_controller:
         rospy.Subscriber('/desired_sigma',PoseStamped , self.set_desired_sigma)
         rospy.Subscriber('/turtlebot/joint_states', JointState, self.joint_pos_callback)
         
+        #command veloctiy publisher 
+        self.cmd_vel= rospy.Publisher('/turtlebot/kobuki/commands/velocity', Twist, queue_size=10)
+        
         odom_sim_topic = "/turtlebot/kobuki/odom" # odometry topic for simulation
         #subscribe to the odometry topic to use later for transformation from world NED to robot base_footprint
         self.odom_sub = rospy.Subscriber(odom_sim_topic, Odometry, self.odomCallback) 
@@ -60,6 +63,7 @@ class TP_controller:
         
         #publish the odom message 
         self.ee_pub.publish(ee_pose)
+        
 
         # control part
         # Publish the joint velocity command
@@ -73,20 +77,31 @@ class TP_controller:
         print ("total jacobian: ", self.MM.get_MMJacobian())
         
         if self.MM.d_sigma is not None:
-            J = self.MM.get_armJacobian()
-
+            # J = self.MM.get_armJacobian()
+            J = self.MM.get_MMJacobian()
             Jinv = self.weighted_DLS(J,0.004) 
             
             #print ("Jinv: ", Jinv)
             #print ("error: ", self.MM.get_error())
 
             # dq = np.linalg.pinv(J) @ desired_vel
-            dq = Jinv @ self.MM.get_error()
-
+            K = 0.2 
+            dq = Jinv @ (K * self.MM.get_error())        #6x1  
+            
+            #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
+            M1 = dq[0,0] #angular velocity of the base joint
+            M2 = dq[1,0]
+            
+            # publish the cmd_vel message
+            cmd_vel = Twist()
+            cmd_vel.linear.x = M2
+            cmd_vel.angular.z = M1
+            self.cmd_vel.publish(cmd_vel)
+            print ("dq: ", dq)
             
             # publish the joint velocity command
             joint_velocity = Float64MultiArray()
-            joint_velocity.data = dq.flatten().tolist()
+            joint_velocity.data = dq[2:,0].flatten().tolist()
 
             self.joint_velocity_pub.publish(joint_velocity)
     
@@ -239,6 +254,7 @@ class MobileManipulator:
         self.y = self.l * sin(q1 + theta + alpha) + eta_y + self.bmx * sin(theta)
         self.z = (-self.bz - (d1 * cos(-q2)) - (d2 * sin(q3)) + self.mz - self.bmz)  # plus or minus mz???????????
         self.yaw = q1 + q4 + alpha + theta
+        print ("yaw: ", self.yaw)
         #this returns only the derivation by the q's, not the mobile base joints 
         
         return self.x, self.y, self.z, self.yaw
@@ -426,10 +442,10 @@ class MobileManipulator:
         theta = float(self.q[0,0]-deg90)
 
         # Combined system kinematics (DH parameters extended with base DOF)
-        thetaExt    = np.concatenate([np.array([deg90,                                 0]), np.array([theta])])
-        dExt        = np.concatenate([np.array([self.bmz, self.bmx]),    np.array([0])])
-        aExt        = np.concatenate([np.array([0,                                     0]),    np.array([self.l])])
-        alphaExt    = np.concatenate([np.array([deg90,                            -deg90]),    np.array([0])])
+        thetaExt    = np.concatenate([np.array([deg90,                      0]),    np.array([theta])])
+        dExt        = np.concatenate([np.array([self.bmz,            self.bmx]),    np.array([0])])
+        aExt        = np.concatenate([np.array([0,                          0]),    np.array([self.l])])
+        alphaExt    = np.concatenate([np.array([deg90,                 -deg90]),    np.array([0])])
 
         self.T      = kinematics(dExt, thetaExt, aExt, alphaExt, Tb)
 
@@ -445,10 +461,12 @@ class MobileManipulator:
         
         # Calculate the error between the desired and current end-effector pose
 
+        # error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [normalize_angle(self.d_sigma[3] - float(self.yaw))] ])
         error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [0]])
+
         print ("error: ", error)
         return error
-            
+    
     
 if __name__ == "__main__":
 
