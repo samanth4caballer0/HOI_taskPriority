@@ -1,34 +1,89 @@
-import tf2_ros
+#!/usr/bin/env python3
+
 import rospy
-from nav_msgs.msg import Odometry
-from std_msgs.msg import Float64MultiArray
-from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped, Twist
+from std_msgs.msg import Float64MultiArray, Bool
+from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped
 from sensor_msgs.msg import JointState
 from math import sin, cos
 import tf
 import numpy as np
 import sympy as sp 
+from visualization_msgs.msg import Marker
+from std_msgs.msg import ColorRGBA
+from tasks import Position3D, Orientation2D, JointLimit2D
 
 
 class TP_controller:
     def __init__(self):
         rospy.init_node("TP_control_node")
         rospy.loginfo("Starting Task Priority Controller....")
-        
-        #self.publish_static_transform()  
+
+
+        self.color_red = ColorRGBA()
+        self.color_red.r = 1
+        self.color_red.g = 0
+        self.color_red.b = 0
+        self.color_red.a = 1
+        self.color_blue = ColorRGBA()
+        self.color_blue.r = 0
+        self.color_blue.g = 0
+        self.color_blue.b = 1
+        self.color_blue.a = 1 
+        self.color = self.color_blue
+                
+        self.m = Marker()
+        self.start_time = rospy.Time.now().to_sec()
+
+        self.request_goal_pub = rospy.Publisher('/goal_request', Bool, queue_size=10)
+
+        # Initialize the MobileManipulator object  
         self.MM = MobileManipulator() 
+
+        # Task definition
+        # Joint limits definition for the joints limits tasks
+        j1_limits = np.array([np.pi, -np.pi])
+        j2_limits = np.array([np.pi, -np.pi])
+        j3_limits = np.array([np.pi, -np.pi])
+        j4_limits = np.array([np.pi, -np.pi])
+        self.j1_limit = JointLimit2D("joint 1 limit", 0, j1_limits, tresholds=[0.03, 0.035])
+        self.j2_limit = JointLimit2D("joint 2 limit", 1, j2_limits, tresholds=[0.03, 0.035])
+        self.j3_limit = JointLimit2D("joint 3 limit", 2, j3_limits, tresholds=[0.03, 0.035])
+        self.j4_limit = JointLimit2D("joint 4 limit", 3, j4_limits, tresholds=[0.03, 0.035])
+        self.position_task = Position3D("cartesion 3D position",self.MM, 4)
+        self.orientation_task = Orientation2D("orientation",self.MM, 4)
+        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,
+                      self.position_task, self.orientation_task]
+
+        sigma_pose = self.position_task.getDesired()
+        self.MM.d_sigma[0] = sigma_pose[0]
+        self.MM.d_sigma[1] = sigma_pose[1]
+        self.MM.d_sigma[2] = sigma_pose[2]
+
+
         #self.ee_pub = rospy.Publisher('/end_effector', Odometry, queue_size=10)
         self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)
         self.joint_velocity_pub = rospy.Publisher('/swiftpro/joint_velocity_controller/command', Float64MultiArray, queue_size=10)
+        self.path_pub = rospy.Publisher('/path', Marker, queue_size=10)
+        self.request_goal_pub = rospy.Publisher('/goal_request', Bool, queue_size=10)
+
         # Timer for TP controller (Velocity Commands)
         rospy.Subscriber('/desired_sigma',PoseStamped , self.set_desired_sigma)
         rospy.Subscriber('/swiftpro/joint_states', JointState, self.joint_pos_callback)
 
+        rospy.sleep(0.3)
+
+        self.request_goal_pub.publish(True)
 
         rospy.Timer(rospy.Duration(0.1), self.visualize)
         
 
     def visualize(self, _):
+
+        for i in self.tasks[0:4]:
+            if i.isActive():
+                self.color = self.color_red
+            else:
+                self.color = self.color_blue
         
         # Calculate the end effector pose
         x, y, z, yaw = self.MM.getEndEffectorPose()
@@ -47,15 +102,21 @@ class TP_controller:
         ee_pose = PoseStamped()
 
         ee_pose.header.frame_id = 'swiftpro/manipulator_base_link'
-        ee_pose.header.stamp = rospy.Time.now()        
+        ee_pose.header.stamp = rospy.Time.now()      
 
-        ee_pose.pose.position = Point(x, y, z)
+        position = Point(x, y, z)
+        self.m.points.append(position)
+        self.m.colors.append(self.color)  
+        self.publish_path()
+
+        ee_pose.pose.position = position
         # Convert yaw to quaternion
         quaternion = tf.transformations.quaternion_from_euler(0, 0, yaw)
         ee_pose.pose.orientation = Quaternion(quaternion[0], quaternion[1], quaternion[2], quaternion[3])
         
         #publish the odom message 
         self.ee_pub.publish(ee_pose)
+
 
         # control part
         # Publish the joint velocity command
@@ -66,7 +127,20 @@ class TP_controller:
         Jbar_inv = DLS(Jbar, 0.1)                    # pseudo-inverse or DLS
         dq += Jbar_inv @ ((i.getK()@i.getError()-J@dq) + i.ff)      # calculate quasi-velocities with null-space tasks execution """
 
-        if self.MM.d_sigma is not None:
+        """ if self.MM.d_sigma is not None:
+            for i in range(len(self.tasks)):
+                # get the task
+                task = self.tasks[i]
+                
+                
+                # get the task jacobian
+                J = task.get_jacobian()
+
+                # get the null space jacobian
+                null_space = task.get_null_space_jacobian()
+
+                # get the joint velocity command
+                dq = np.zeros((self.MM.dof, 1))
             J = self.MM.get_armJacobian()
 
             Jinv = self.weighted_DLS(J,0.004) 
@@ -83,7 +157,72 @@ class TP_controller:
             joint_velocity.data = dq.flatten().tolist()
 
             self.joint_velocity_pub.publish(joint_velocity)
+
+            if self.MM.error_magnitude < self.MM.threshold_distance:
+                self.request_goal_pub.publish(True)
+                self.m = Marker() """
+        
+
+        null_space = np.eye(self.MM.dof)                  # initial null space P (projector)
+        dq = np.zeros(self.MM.dof).reshape(-1, 1)         # initial quasi-velocities
+
+        for i in self.tasks:
+            i.update(self.MM)                             # update task Jacobian and error
+            if i.isActive():
+                """ print ("i.getJacobian(): ", i.J)
+                print ("null_space: ", null_space) """
+                J = i.getJacobian()           # task full Jacobian
+                Jbar = (J @ null_space)                      # projection of task in null-space
+                Jbar_inv = self.weighted_DLS(Jbar, 0.04)                    # pseudo-inverse or DLS
+                """ print ("Jbar_inv: ", Jbar_inv)
+                print ("j@dq: ", J@dq)
+                print ("i.getError(): ", i.getError())
+                print ("k: ", i.getK())""" 
+                self.MM.get_error()
+                dq += Jbar_inv @ ((i.getK()@i.getError()-J@dq) + i.ff)      # calculate quasi-velocities with null-space tasks execution
+                null_space = null_space - np.linalg.pinv(Jbar) @ Jbar   # update null-space projector
     
+        # publish the joint velocity command
+        joint_velocity = Float64MultiArray()
+        joint_velocity.data = dq.flatten().tolist()
+
+        self.joint_velocity_pub.publish(joint_velocity)
+
+
+        if self.MM.error_magnitude < self.MM.threshold_distance :
+            print ("goal reached")
+            self.start_time = rospy.Time.now().to_sec()
+            self.request_goal_pub.publish(True)
+            self.m = Marker() 
+
+        # if 10 seconds have passed, ask for a new goal
+        if rospy.Time.now().to_sec() - self.start_time > 10:
+            self.request_goal_pub.publish(True)
+            self.start_time = rospy.Time.now().to_sec()
+            self.m = Marker()
+
+    def publish_path(self):
+
+        #self.m = Marker()
+        self.m.header.frame_id = 'swiftpro/manipulator_base_link'
+        self.m.header.stamp = rospy.Time.now()
+        self.m.id = 0
+        self.m.type = Marker.LINE_STRIP
+        self.m.ns = 'path'
+        self.m.action = Marker.DELETE
+        self.m.lifetime = rospy.Duration(0)
+
+        self.m.action = Marker.ADD
+        self.m.scale.x = 0.02
+        self.m.scale.y = 0.02
+        self.m.scale.z = 0.02
+        
+        self.m.pose.orientation.x = 0
+        self.m.pose.orientation.y = 0
+        self.m.pose.orientation.z = 0
+        self.m.pose.orientation.w = 1
+        #print( "points length: ", len(self.m.points))
+        self.path_pub.publish(self.m)    
 
     def publish_static_transform(self):
                 
@@ -136,7 +275,10 @@ class TP_controller:
         self.MM.d_sigma[1] = y
         self.MM.d_sigma[2] = z
         self.MM.d_sigma[3] = yaw
-       
+
+        self.position_task.setDesired(np.array([[x],[y],[z]]))  # Update the task with the new desired pose
+        self.orientation_task.setDesired(np.array([yaw]).reshape((1,1)))  # Update the task with the new desired pose
+    
     def weighted_DLS(self,A, damping):
         '''
             Function computes the damped least-squares (DLS) solution to the matrix inverse problem.
@@ -162,7 +304,7 @@ class MobileManipulator:
         alpha (Numpy array): list of rotations around X-axis
         revolute (list of Bool): list of flags specifying if the corresponding joint is a revolute joint
     '''
-    def __init__(self):
+    def __init__(self,):
 
         self.dof            = 6
 
@@ -173,8 +315,14 @@ class MobileManipulator:
         self.eta            = np.zeros((4, 1))
 
         # Vector of desired end-effector pose (position & orientation)
-        self.d_sigma        = None
+        self.d_sigma        = np.zeros((4, 1))
 
+        # Min distance to goal
+        self.threshold_distance = 0.001
+
+        # degree of freedom
+        self.dof            = 4
+    
 
     def getEndEffectorPose(self):
         
@@ -283,12 +431,14 @@ class MobileManipulator:
     
     def get_error(self):
         # Calculate the end effector pose
-        x, y, z, yaw = self.x, self.y, self.z, self.yaw
+        x, y, z, _ = self.x, self.y, self.z, self.yaw
         
         # Calculate the error between the desired and current end-effector pose
 
         error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [0]])
-        print ("error: ", error)
+
+        self.error_magnitude = np.linalg.norm(error)
+        #print ("error: ", self.error_magnitude)
         return error
     
         

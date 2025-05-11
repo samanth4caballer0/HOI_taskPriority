@@ -1,0 +1,12 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/raul/Desktop/Master/Docker/workspace/devel/lib/python3/dist-packages",
+        "/home/raul/work_spaces/quantum_ws/devel/lib/python2.7/dist-packages",
+        "/opt/ros/melodic/lib/python2.7/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/raul/Desktop/Master/Docker/workspace/devel/lib/python3/dist-packages",
+        "/home/raul/work_spaces/quantum_ws/devel/lib/python2.7/dist-packages",
+        "/opt/ros/melodic/lib/python2.7/dist-packages"
+    ]
+}

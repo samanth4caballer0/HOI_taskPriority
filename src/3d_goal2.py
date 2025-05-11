@@ -2,6 +2,7 @@
 
 import rospy
 from geometry_msgs.msg import PoseStamped
+from std_msgs.msg import Bool
 import numpy as np
 
 class ArmGoalPublisher:
@@ -11,17 +12,20 @@ class ArmGoalPublisher:
         rospy.loginfo("Starting ArmGoalPublisher ....")
 
         self.goalPublisher = rospy.Publisher('/desired_sigma', PoseStamped, queue_size=10)
-        
-        self.goal_vector = [[0.2, 0.0, -0.05, 0],[0.1, 0.2, -0.05, np.pi/2], 
-                            [0.1, -0.2, -0.05, 0],[0.1, 0.2, -0.15, np.pi/2]]
 
-        rospy.Timer(rospy.Duration(5), self.publishgoal)
- 
+        rospy.Subscriber('/goal_request', Bool, self.goal_request_callback)
         
-    def publishgoal(self,_):
-        if len(self.goal_vector) > 0:
-            print ("Publishing goal: ", self.goal_vector[0])
-            goal = self.goal_vector.pop(0)
+
+ 
+    def goal_request_callback(self, msg):
+        if msg.data:
+            print ("Received goal request")
+            goal = np.random.uniform(low=0.1, high=0.3, size=(1,))                  # X
+            goal = np.append(goal, np.random.uniform(low=-0.2, high=0.2))           # Y
+            goal = np.append(goal, np.random.uniform(low=-0.05, high=-0.2))         # Z
+            goal = np.append(goal, np.random.uniform(low=-np.pi/2, high=np.pi/2))   # Yaw
+            print ("Publishing goal: ", goal)
+
             pose = PoseStamped()
             pose.header.stamp = rospy.Time.now()
             pose.header.frame_id = 'swiftpro/manipulator_base_link'
@@ -35,6 +39,7 @@ class ArmGoalPublisher:
             pose.pose.orientation.w = np.cos(goal[3]/2)
             
             self.goalPublisher.publish(pose)
+    
 
     
 if __name__ == "__main__":
