@@ -13,7 +13,7 @@ from std_msgs.msg import Float64MultiArray, Bool
 from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped
 from visualization_msgs.msg import Marker
 from std_msgs.msg import ColorRGBA
-from tasks import Position3D, Orientation2D, JointLimit2D
+from tasks import Position3D, Orientation2D, JointLimit2D, JointPosition, MMPosition
 
 def wrap_angle(angle): 
     return (angle + ( 2.0 * np.pi * np.floor( ( np.pi - angle ) / ( 2.0 * np.pi ) ) ) )
@@ -22,6 +22,24 @@ class TP_controller:
     def __init__(self):
         rospy.init_node("TP_control_node")
         rospy.loginfo("Starting Task Priority Controller....")
+
+        self.MM = MobileManipulator() 
+        # Task
+        j1_limits = np.array([-1.571, 1.571])
+        j2_limits = np.array([-1.571, 0.050])
+        j3_limits = np.array([-1.571, 0.050])
+        j4_limits = np.array([-1.571, 1.571])
+        self.j1_limit = JointLimit2D("joint 1 limit", 0, j1_limits, tresholds=[0.05, 0.08])
+        self.j2_limit = JointLimit2D("joint 2 limit", 1, j2_limits, tresholds=[0.05, 0.08])
+        self.j3_limit = JointLimit2D("joint 3 limit", 2, j3_limits, tresholds=[0.05, 0.08])
+        self.j4_limit = JointLimit2D("joint 4 limit", 3, j4_limits, tresholds=[0.05, 0.08])
+        self.j1_pos = JointPosition("joint 1 position", self.MM, 1,np.array([-0.4]).reshape((1,1)))   #change desired value directly here in n.array
+        #receives desired sigma from 3d_goal2 node 
+        self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.2, 0.0, -0.25]).reshape((3,1)))
+        self.orientation_task = Orientation2D("orientation",self.MM, np.array([0.0]))
+        self.mm_pos = MMPosition("mobile base position", np.array([0.0, 0.0]).reshape(2,1))
+        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit, self.j1_pos]   
+    
         
         self.color_red = ColorRGBA()
         self.color_red.r = 1
@@ -42,7 +60,7 @@ class TP_controller:
 
         
         #self.publish_static_transform()  
-        self.MM = MobileManipulator() 
+        
         #self.ee_pub = rospy.Publisher('/end_effector', Odometry, queue_size=10)
         self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)
         self.joint_velocity_pub = rospy.Publisher('/turtlebot/swiftpro/joint_velocity_controller/command', Float64MultiArray, queue_size=10)
@@ -68,8 +86,42 @@ class TP_controller:
         self.odom_sub = rospy.Subscriber(odom_sim_topic, Odometry, self.odomCallback) 
 
         rospy.Timer(rospy.Duration(0.1), self.visualize)
-        
+        rospy.Timer(rospy.Duration(0.1), self.control_loop)
 
+        
+    def control_loop(self, event):
+        
+        null_space = np.eye(self.MM.dof)                  # initial null space P (projector)
+        dq = np.zeros(self.MM.dof).reshape(-1, 1)         # initial quasi-velocities
+
+        for task in self.tasks:
+            task.update(self.MM) 
+            if task.isActive():
+                J = task.getJacobian()                          # task full Jacobian
+                Jbar = (J @ null_space)                      # projection of task in null-space
+                Jbar_inv = self.weighted_DLS(Jbar, 0.004)                    # pseudo-inverse or DLS
+                dq += Jbar_inv @ ((task.getK()*0.2@task.getError()-J@dq))      # calculate quasi-velocities with null-space tasks execution
+                null_space = null_space - np.linalg.pinv(Jbar) @ Jbar   # update null-space projector
+                print ("task: ", task.name)
+        #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
+        M1 = dq[0,0] #angular velocity of the base joint
+        M2 = dq[1,0]
+        
+        #CAP the base joint velocities to a maximum of 0.3, if statement (if dq[0] > 0.3, then dq[0] = 0.3)
+        # publish the cmd_vel message
+        cmd_vel = Twist()
+        cmd_vel.linear.x = M2
+        cmd_vel.angular.z = M1
+        self.cmd_vel.publish(cmd_vel)
+        # print ("dq: ", dq)
+        
+        # publish the joint velocity command
+        joint_velocity = Float64MultiArray()
+        joint_velocity.data = dq[2:,0].flatten().tolist()
+
+        self.joint_velocity_pub.publish(joint_velocity)
+    
+    
     def visualize(self, _):
         
         # Calculate the end effector pose
@@ -115,38 +167,10 @@ class TP_controller:
         Jbar_inv = DLS(Jbar, 0.1)                    # pseudo-inverse or DLS
         dq += Jbar_inv @ ((i.getK()@i.getError()-J@dq) + i.ff)      # calculate quasi-velocities with null-space tasks execution """
         
-        print ("total jacobian: ", self.MM.get_MMJacobian())
+        # print ("total jacobian: ", self.MM.get_MMJacobian())
         
-        if self.MM.d_sigma is not None:
-            # J = self.MM.get_armJacobian()
-            J = self.MM.get_MMJacobian()
-            Jinv = self.weighted_DLS(J,0.004) 
-            
-            #print ("Jinv: ", Jinv)
-            #print ("error: ", self.MM.get_error())
-
-            # dq = np.linalg.pinv(J) @ desired_vel
-            
-            K = 0.2 
-            dq = Jinv @ (K * self.MM.get_error())        #6x1  
-            
-            #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
-            M1 = dq[0,0] #angular velocity of the base joint
-            M2 = dq[1,0]
-            
-            # publish the cmd_vel message
-            cmd_vel = Twist()
-            cmd_vel.linear.x = M2
-            cmd_vel.angular.z = M1
-            self.cmd_vel.publish(cmd_vel)
-            print ("dq: ", dq)
-            
-            # publish the joint velocity command
-            joint_velocity = Float64MultiArray()
-            joint_velocity.data = dq[2:,0].flatten().tolist()
-
-            self.joint_velocity_pub.publish(joint_velocity)
-    
+        
+        self.MM.get_error()
         # publish the path marker
         if self.MM.error_magnitude < self.MM.threshold_distance :
             print ("goal reached")
@@ -240,13 +264,17 @@ class TP_controller:
         z = msg.pose.position.z
         yaw = tf.transformations.euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
         
-        # Set the desired end-effector pose in the MobileManipulator object
+        # # Set the desired end-effector pose in the MobileManipulator object
         self.MM.d_sigma = np.zeros((4))
 
         self.MM.d_sigma[0] = x
         self.MM.d_sigma[1] = y
         self.MM.d_sigma[2] = z
         self.MM.d_sigma[3] = yaw
+        
+        self.position_task.setDesired(np.array([x, y, z]).reshape(-1, 1))
+        self.mm_pos.setDesired(np.array([x, y]).reshape(-1, 1))
+        self.orientation_task.setDesired(np.array([yaw]).reshape(-1, 1))
        
     def weighted_DLS(self,A, damping):
         '''
@@ -284,10 +312,10 @@ class MobileManipulator:
         self.eta            = np.zeros((4, 1))
 
         # Vector of desired end-effector pose (position & orientation)
-        self.d_sigma        = None
-
+        self.d_sigma        = np.zeros((4))
         # Min distance to goal
         self.threshold_distance = 0.01
+        self.error_magnitude = 0.0
         
     def getEndEffectorPose(self):
         
@@ -337,7 +365,7 @@ class MobileManipulator:
         self.y = self.l * sin(q1 + theta + alpha) + eta_y + self.bmx * sin(theta)
         self.z = (-self.bz - (d1 * cos(-q2)) - (d2 * sin(q3)) + self.mz - self.bmz)  # plus or minus mz???????????
         self.yaw = q1 + q4 + alpha + theta
-        print ("yaw: ", self.yaw)
+        # print ("yaw: ", self.yaw)
         #this returns only the derivation by the q's, not the mobile base joints 
         
         return self.x, self.y, self.z, self.yaw
@@ -425,6 +453,8 @@ class MobileManipulator:
         J = np.array(J_num).astype(np.float64)
         return J
     
+    
+    #full manipulator jacobian (equations considering mobile base + arm)
     def get_MMJacobian(self):
         # deifne symbolic variables
         q1, q2, q3, q4 = sp.symbols('q1 q2 q3 q4')
@@ -501,7 +531,7 @@ class MobileManipulator:
 
         # Whole Jacobian 
         JB = self.getMbaseJacobian()
-        print ("JB: ", JB)
+        # print ("JB: ", JB)
         J = np.zeros((4, 6))
         J[:, 0] = JB[[0,1,2,-1],0].reshape((4))                        # derivertive by m1
         J[:, 1] = JB[[0,1,2,-1],1].reshape((4))                        # derivertive by m2
@@ -537,7 +567,7 @@ class MobileManipulator:
         
         return JB
         
-    
+    #TODO move this to the task class
     def get_error(self):
         # Calculate the end effector pose
         x, y, z, yaw = self.x, self.y, self.z, self.yaw
@@ -546,8 +576,7 @@ class MobileManipulator:
 
         # error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [wrap_angle(self.d_sigma[3] - float(self.yaw))] ])
         error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [0]])
-
-        print ("error: ", error)
+        # print ("error: ", error)
         self.error_magnitude = np.linalg.norm(error)        
         return error
     
