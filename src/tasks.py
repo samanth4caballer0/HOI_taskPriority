@@ -1,5 +1,5 @@
 import numpy as np 
-
+import rospy
 class Task:
     '''
         Constructor.
@@ -121,12 +121,12 @@ class Orientation2D(Task):
         x,y,z,yaw = robot.getEndEffectorPose() # Compute current sigma
 
         current_sigma = yaw
-        print ("current sigma: ",current_sigma*180/np.pi)
+        # print ("current sigma: ",current_sigma*180/np.pi)
         self.err = wrapangle(self.getDesired() - current_sigma).reshape(1,1) # Update task error
         # self.error = np.array([-self.err]).reshape((1,1)) # Update task error
-        print ("angular error in deg: ", self.err*180/np.pi)
-        print ("base: ", robot.q[0]*180/np.pi)
-        print ("cup: ", robot.q[3]*180/np.pi)
+        # print ("angular error in deg: ", self.err*180/np.pi)
+        # print ("base: ", robot.q[0]*180/np.pi)
+        # print ("cup: ", robot.q[3]*180/np.pi)
         self.erroVec.append(self.err[0])
         pass # to remove
 
@@ -253,9 +253,9 @@ class JointLimit2D(Task)    :
         self.J[:,self.joint+2] = 1
         current_sigma = robot.q[self.joint] # Compute current sigma
         self.activate(current_sigma)
-        print('current_sigma:',current_sigma)
+        # print('current_sigma:',current_sigma)
         self.err = np.array([self.active]) # Update task error
-        print ("angular error: ", self.err)
+        # print ("angular error: ", self.err)
         self.erroVec.append(self.err)
         pass # to remove
 
@@ -310,10 +310,16 @@ class MMPosition(Task):
     def update(self, robot):
         DoF     = robot.dof
         # Update Jacobean matrix - task Jacobian
-        self.J  = (robot.get_MMJacobian()[0:2, :]).reshape((2, DoF)) 
+        JB = robot.getMbaseJacobian()
+        J = np.zeros((2,DoF))
+        J[0,:2] = JB[0,:2]
+        J[1,:2] = JB[1,:2]
+        self.J  = J
         # Update task error
         self.err = self.k @ (self.getDesired() - robot.eta[0:2].reshape((2, 1)))
-       
+        if np.linalg.norm(self.err) < 0.1:
+            self.err = np.zeros((2,1))
+            rospy.logerr("mobile base position reached")
 
 def wrapangle(angle):
     # Wrap angle to the range [-pi, pi]

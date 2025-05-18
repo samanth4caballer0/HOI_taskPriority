@@ -105,7 +105,7 @@ def jacobian(T, revolute):
     
     o_n = T[-1][0:3,3].reshape(1,3)
 
-    print("T", T)
+    # print("T", T)
     # 2. For each joint of the robot
     for index in range(1,len(T)):
         #   a. Extract z and o.

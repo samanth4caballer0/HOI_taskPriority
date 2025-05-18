@@ -24,7 +24,7 @@ class TP_controller:
         rospy.loginfo("Starting Task Priority Controller....")
 
         self.MM = MobileManipulator() 
-        # Task
+        # Taskz
         j1_limits = np.array([-1.571, 1.571])
         j2_limits = np.array([-1.571, 0.050])
         j3_limits = np.array([-1.571, 0.050])
@@ -33,13 +33,13 @@ class TP_controller:
         self.j2_limit = JointLimit2D("joint 2 limit", 1, j2_limits, tresholds=[0.05, 0.08])
         self.j3_limit = JointLimit2D("joint 3 limit", 2, j3_limits, tresholds=[0.05, 0.08])
         self.j4_limit = JointLimit2D("joint 4 limit", 3, j4_limits, tresholds=[0.05, 0.08])
-        self.j1_pos = JointPosition("joint 1 position", self.MM, 1,np.array([-0.4]).reshape((1,1)))   #change desired value directly here in n.array
+        self.j1_pos = JointPosition("joint 1 position", self.MM, 1,np.array([1.5]).reshape((1,1)))   #change desired value directly here in n.array
         #receives desired sigma from 3d_goal2 node 
         self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.2, 0.0, -0.25]).reshape((3,1)))
         self.orientation_task = Orientation2D("orientation",self.MM, np.array([0.0]))
-        self.mm_pos = MMPosition("mobile base position", np.array([0.0, 0.0]).reshape(2,1))
-        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit, self.j1_pos]   
-    
+        self.mm_pos = MMPosition("mobile base position", np.array([2, 4]).reshape(2,1))
+        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,self.position_task]   
+        #self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,
         
         self.color_red = ColorRGBA()
         self.color_red.r = 1
@@ -55,7 +55,6 @@ class TP_controller:
                 
         self.m = Marker()
         self.start_time = rospy.Time.now().to_sec()
-
         self.request_goal_pub = rospy.Publisher('/goal_request', Bool, queue_size=10)
 
         
@@ -74,7 +73,7 @@ class TP_controller:
         rospy.Subscriber('/desired_sigma',PoseStamped , self.set_desired_sigma)
         rospy.Subscriber('/turtlebot/joint_states', JointState, self.joint_pos_callback)
         
-        #why? 
+        #why TODO? 
         rospy.sleep(0.3)
         self.request_goal_pub.publish(True)
         
@@ -85,7 +84,8 @@ class TP_controller:
         #subscribe to the odometry topic to use later for transformation from world NED to robot base_footprint
         self.odom_sub = rospy.Subscriber(odom_sim_topic, Odometry, self.odomCallback) 
 
-        rospy.Timer(rospy.Duration(0.1), self.visualize)
+        #timer for the control loop
+        rospy.Timer(rospy.Duration(0.1), self.visualize)        #not for final version
         rospy.Timer(rospy.Duration(0.1), self.control_loop)
 
         
@@ -94,33 +94,65 @@ class TP_controller:
         null_space = np.eye(self.MM.dof)                  # initial null space P (projector)
         dq = np.zeros(self.MM.dof).reshape(-1, 1)         # initial quasi-velocities
 
+        s = []
+        W = np.eye(6) 
+        W[0,0] = 0.5
         for task in self.tasks:
             task.update(self.MM) 
             if task.isActive():
-                J = task.getJacobian()                          # task full Jacobian
+                J = task.getJacobian()                          # task full Jacobian TODO SHOULDNT THIS BE task.get_MMJacobian()?
                 Jbar = (J @ null_space)                      # projection of task in null-space
-                Jbar_inv = self.weighted_DLS(Jbar, 0.004)                    # pseudo-inverse or DLS
-                dq += Jbar_inv @ ((task.getK()*0.2@task.getError()-J@dq))      # calculate quasi-velocities with null-space tasks execution
+                Jbar_inv = self.weighted_DLS(Jbar, 0.004,W)                    # pseudo-inverse or DLS
+                dq_i = Jbar_inv @ ((task.getK()*0.2@task.getError()-J@dq))
+                dq += dq_i      # calculate quasi-velocities with null-space tasks execution
                 null_space = null_space - np.linalg.pinv(Jbar) @ Jbar   # update null-space projector
-                print ("task: ", task.name)
-        #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
-        M1 = dq[0,0] #angular velocity of the base joint
-        M2 = dq[1,0]
+                # print ("task: ", task.name)
+                s_i = np.linalg.norm(dq_i) / np.max(abs(dq_i))
+                # print( "s_i",(s_i))
+                s.append(s_i)
         
-        #CAP the base joint velocities to a maximum of 0.3, if statement (if dq[0] > 0.3, then dq[0] = 0.3)
+        s_max = max(s)
+        # print("s_max", (s_max))
+        # if s_max >1:
+        #     dq = dq/s_max
+        
+        ############# ACCESSING MOBILE BASE dq################ 
+        #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
+        M1 = self.cap_velocities(dq[0,0]) #angular velocity of the base joint
+        M2 = self.cap_velocities(dq[1,0]) #linear velocity of the base joint
+        
         # publish the cmd_vel message
         cmd_vel = Twist()
         cmd_vel.linear.x = M2
         cmd_vel.angular.z = M1
         self.cmd_vel.publish(cmd_vel)
+        # print("cmd_vel", cmd_vel)
         # print ("dq: ", dq)
         
+        ############# ACCESSING ARM JOINT dq################         
         # publish the joint velocity command
         joint_velocity = Float64MultiArray()
         joint_velocity.data = dq[2:,0].flatten().tolist()
-
         self.joint_velocity_pub.publish(joint_velocity)
     
+        #cap the base joint velocities to a maximum of 0.3 
+    def cap_velocities(self, dq): 
+        dq = np.clip(dq, -0.3, 0.3)
+        if abs(dq) < 0.03:
+            dq = 0
+        return dq
+    
+    #where do we actually access the dq's ??? isnt the control loop supposed to return dq? 
+    def velocity_scaling(self, dq):
+        dq_max_vel= np.array([2.0, 2.1, 2.3, 2.5]).reshape(-1,1) # max velocity of the joints
+        s = max(np.abs(dq[2:]) / dq_max_vel)
+        dq[0] = max(min(dq[0], 1.0), -1.0)
+        dq[1] = max(min(dq[1], 0.3), -0.3)
+        if s > 1:
+            dq[2:] =  (dq[2:]) / float(s)
+            return dq
+        else:
+            return dq
     
     def visualize(self, _):
         
@@ -179,13 +211,14 @@ class TP_controller:
             self.m = Marker() 
 
         # if 10 seconds have passed, ask for a new goal
-        if rospy.Time.now().to_sec() - self.start_time > 16:
+        if rospy.Time.now().to_sec() - self.start_time > 15:
             self.request_goal_pub.publish(True)
             self.start_time = rospy.Time.now().to_sec()
             self.m = Marker()
 
+    
+    #path marker to visualize end effector trajectory. ee_position task debug 
     def publish_path(self):
-
 
         #self.m = Marker()
         self.m.header.frame_id = 'world_ned'
@@ -276,7 +309,7 @@ class TP_controller:
         self.mm_pos.setDesired(np.array([x, y]).reshape(-1, 1))
         self.orientation_task.setDesired(np.array([yaw]).reshape(-1, 1))
        
-    def weighted_DLS(self,A, damping):
+    def weighted_DLS(self,A, damping, Weight):
         '''
             Function computes the damped least-squares (DLS) solution to the matrix inverse problem.
 
@@ -287,6 +320,8 @@ class TP_controller:
             Returns:
             (Numpy array): inversion of the input matrix
         '''
+        return np.linalg.inv(Weight) @ A.T @ np.linalg.inv(A @ np.linalg.inv(Weight) @ A.T + damping**2 * np.eye(np.shape(A)[0], np.shape(A)[0]))
+
         return  A.T @ np.linalg.inv(A  @ A.T + damping**2 * np.eye(np.shape(A)[0], np.shape(A)[0]))
 
 
@@ -531,7 +566,7 @@ class MobileManipulator:
 
         # Whole Jacobian 
         JB = self.getMbaseJacobian()
-        # print ("JB: ", JB)
+        print ("JB: ", JB)
         J = np.zeros((4, 6))
         J[:, 0] = JB[[0,1,2,-1],0].reshape((4))                        # derivertive by m1
         J[:, 1] = JB[[0,1,2,-1],1].reshape((4))                        # derivertive by m2
@@ -564,7 +599,8 @@ class MobileManipulator:
 
         T  = kinematics(dExt, thetaExt, aExt, alphaExt, Tb)
         JB = jacobian(T, self.revolute + [True])
-        
+        print ("JB: ", JB)
+
         return JB
         
     #TODO move this to the task class
@@ -574,8 +610,8 @@ class MobileManipulator:
         
         # Calculate the error between the desired and current end-effector pose
 
-        # error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [wrap_angle(self.d_sigma[3] - float(self.yaw))] ])
-        error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [0]])
+        error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [wrap_angle(self.d_sigma[3] - float(self.yaw))] ])
+        # error = np.array([[self.d_sigma[0] - x], [self.d_sigma[1] - y], [self.d_sigma[2] - z], [0]])
         # print ("error: ", error)
         self.error_magnitude = np.linalg.norm(error)        
         return error
