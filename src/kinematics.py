@@ -96,16 +96,16 @@ class TP_controller:
         rospy.Timer(rospy.Duration(0.1), self.visualize)        #not for final version
         rospy.Timer(rospy.Duration(0.1), self.control_loop)
 
-    def velocity_scaling(self, dq):
-        dq_max_vel= np.array([2.0, 2.1, 2.3, 2.5]).reshape(-1,1) # max velocity of the joints
-        s = max(np.abs(dq[2:]) / dq_max_vel)
-        dq[0] = max(min(dq[0], 1.0), -1.0)
-        dq[1] = max(min(dq[1], 0.3), -0.3)
-        if s > 1:
-            dq[2:] =  (dq[2:]) / float(s)
-            return dq
-        else:
-            return dq
+    # def velocity_scaling(self, dq):
+    #     dq_max_vel= np.array([2.0, 2.1, 2.3, 2.5]).reshape(-1,1) # max velocity of the joints
+    #     s = max(np.abs(dq[2:]) / dq_max_vel)
+    #     dq[0] = max(min(dq[0], 1.0), -1.0)
+    #     dq[1] = max(min(dq[1], 0.3), -0.3)
+    #     if s > 1:
+    #         dq[2:] =  (dq[2:]) / float(s)
+    #         return dq
+    #     else:
+    #         return dq
         
     def control_loop(self, event):
         
