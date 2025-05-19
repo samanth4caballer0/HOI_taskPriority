@@ -27,10 +27,9 @@ class ArmGoalPublisher:
             goal = np.append(goal, np.random.uniform(low=-np.pi/2, high=np.pi/2))   # Yaw
             print ("Publishing goal: ", goal)
 
-            
-            if  self.goal is not None and np.linalg.norm(self.goal-goal) < 0.9 :
-                pass
-            else:
+            #if previous goal is not None and the new goal is close to the previous one, do not publish
+            # if  self.goal is not None and np.linalg.norm(self.goal-goal) > 0.9 :
+            if  self.goal is None or np.linalg.norm(self.goal-goal) > 0.9 :
                 self.goal = goal
                 pose = PoseStamped()
                 pose.header.stamp = rospy.Time.now()

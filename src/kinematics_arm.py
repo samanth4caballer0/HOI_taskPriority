@@ -568,7 +568,7 @@ class MobileManipulator:
 
         # Whole Jacobian 
         JB = self.getMbaseJacobian()
-        print ("JB: ", JB)
+        # print ("JB: ", JB)
         J = np.zeros((4, 6))
         J[:, 0] = JB[[0,1,2,-1],0].reshape((4))                        # derivertive by m1
         J[:, 1] = JB[[0,1,2,-1],1].reshape((4))                        # derivertive by m2

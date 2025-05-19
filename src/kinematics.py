@@ -14,6 +14,7 @@ from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped
 from visualization_msgs.msg import Marker
 from std_msgs.msg import ColorRGBA
 from tasks import Position3D, Orientation2D, JointLimit2D, JointPosition, MMPosition
+from HOI_taskPriority.msg import TaskMsg
 
 def wrap_angle(angle): 
     return (angle + ( 2.0 * np.pi * np.floor( ( np.pi - angle ) / ( 2.0 * np.pi ) ) ) )
@@ -38,8 +39,9 @@ class TP_controller:
         self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.2, 0.0, -0.25]).reshape((3,1)))
         self.orientation_task = Orientation2D("orientation",self.MM, np.array([0.0]))
         self.mm_pos = MMPosition("mobile base position", np.array([2, 4]).reshape(2,1))
-        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,self.position_task]   
+        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit]   
         #self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,
+        #if task not on list, append it and pop the previous (last) one [-1] 
         
         self.color_red = ColorRGBA()
         self.color_red.r = 1
@@ -63,11 +65,15 @@ class TP_controller:
         #self.ee_pub = rospy.Publisher('/end_effector', Odometry, queue_size=10)
         self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)
         self.joint_velocity_pub = rospy.Publisher('/turtlebot/swiftpro/joint_velocity_controller/command', Float64MultiArray, queue_size=10)
-        
+        self.error_pub = rospy.Publisher('/task_error', Float64MultiArray, queue_size=10)
+
         #publish path marker (to visualize path OF the end effector and make sure it is in straight line)
         self.path_pub = rospy.Publisher('/path', Marker, queue_size=10)
         self.request_goal_pub = rospy.Publisher('/goal_request', Bool, queue_size=10)
+        self.goal_pub = rospy.Publisher('/goal_visual', PoseStamped, queue_size=10)
 
+
+        rospy.Subscriber('/task',TaskMsg , self.task_callback)
 
         # Timer for TP controller (Velocity Commands)
         rospy.Subscriber('/desired_sigma',PoseStamped , self.set_desired_sigma)
@@ -83,11 +89,23 @@ class TP_controller:
         odom_sim_topic = "/turtlebot/kobuki/odom" # odometry topic for simulation
         #subscribe to the odometry topic to use later for transformation from world NED to robot base_footprint
         self.odom_sub = rospy.Subscriber(odom_sim_topic, Odometry, self.odomCallback) 
+        self.rviz_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.rvizCallback) 
+
 
         #timer for the control loop
         rospy.Timer(rospy.Duration(0.1), self.visualize)        #not for final version
         rospy.Timer(rospy.Duration(0.1), self.control_loop)
 
+    def velocity_scaling(self, dq):
+        dq_max_vel= np.array([2.0, 2.1, 2.3, 2.5]).reshape(-1,1) # max velocity of the joints
+        s = max(np.abs(dq[2:]) / dq_max_vel)
+        dq[0] = max(min(dq[0], 1.0), -1.0)
+        dq[1] = max(min(dq[1], 0.3), -0.3)
+        if s > 1:
+            dq[2:] =  (dq[2:]) / float(s)
+            return dq
+        else:
+            return dq
         
     def control_loop(self, event):
         
@@ -111,10 +129,11 @@ class TP_controller:
                 # print( "s_i",(s_i))
                 s.append(s_i)
         
-        s_max = max(s)
-        # print("s_max", (s_max))
-        # if s_max >1:
-        #     dq = dq/s_max
+        if s != []:   
+            s_max = max(s)
+            # print("s_max", (s_max))
+            if s_max >1:
+                dq = dq/s_max
         
         ############# ACCESSING MOBILE BASE dq################ 
         #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
@@ -138,21 +157,9 @@ class TP_controller:
         #cap the base joint velocities to a maximum of 0.3 
     def cap_velocities(self, dq): 
         dq = np.clip(dq, -0.3, 0.3)
-        if abs(dq) < 0.03:
-            dq = 0
+        # if abs(dq) < 0.03:
+        #     dq = 0
         return dq
-    
-    #where do we actually access the dq's ??? isnt the control loop supposed to return dq? 
-    def velocity_scaling(self, dq):
-        dq_max_vel= np.array([2.0, 2.1, 2.3, 2.5]).reshape(-1,1) # max velocity of the joints
-        s = max(np.abs(dq[2:]) / dq_max_vel)
-        dq[0] = max(min(dq[0], 1.0), -1.0)
-        dq[1] = max(min(dq[1], 0.3), -0.3)
-        if s > 1:
-            dq[2:] =  (dq[2:]) / float(s)
-            return dq
-        else:
-            return dq
     
     def visualize(self, _):
         
@@ -189,7 +196,13 @@ class TP_controller:
         #publish the odom message 
         self.ee_pub.publish(ee_pose)
         
-
+        goal = PoseStamped()
+        goal.header.frame_id = "world_ned"
+        goal.pose.position.x = self.position_task.sigma_d[0,0]
+        goal.pose.position.y = self.position_task.sigma_d[1,0]
+        goal.pose.position.z = self.position_task.sigma_d[2,0]
+        
+        self.goal_pub.publish(goal)
         # control part
         # Publish the joint velocity command
         #dq  = np.zeros((self.MM.dof, 1))
@@ -200,7 +213,10 @@ class TP_controller:
         dq += Jbar_inv @ ((i.getK()@i.getError()-J@dq) + i.ff)      # calculate quasi-velocities with null-space tasks execution """
         
         # print ("total jacobian: ", self.MM.get_MMJacobian())
-        
+        # publish task error
+        if len(self.tasks)> 4:
+            error = Float64MultiArray()
+            error.data = self.tasks[-1].getError().flatten().tolist()
         
         self.MM.get_error()
         # publish the path marker
@@ -278,7 +294,48 @@ class TP_controller:
                                                     odom.pose.pose.orientation.w])
         self.MM.eta = np.array([odom.pose.pose.position.x, odom.pose.pose.position.y, odom.pose.pose.position.z, yaw]).reshape(-1,1)
         
-   
+    def rvizCallback(self, msg):
+        x = msg.pose.position.x
+        y = msg.pose.position.y
+        z = -0.25
+        yaw = tf.transformations.euler_from_quaternion([msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w])[2]
+        
+        # # Set the desired end-effector pose in the MobileManipulator object
+        self.MM.d_sigma = np.zeros((4))
+
+        self.MM.d_sigma[0] = x
+        self.MM.d_sigma[1] = y
+        self.MM.d_sigma[2] = z
+        self.MM.d_sigma[3] = yaw
+        
+        self.position_task.setDesired(np.array([x, y, z]).reshape(-1, 1))
+        self.mm_pos.setDesired(np.array([x, y]).reshape(-1, 1))
+        self.orientation_task.setDesired(np.array([yaw]).reshape(-1, 1))
+
+    def task_callback(self, msg):
+
+        if len(self.tasks) > 4 and self.tasks[-1].name != msg.name: # if the task is changed
+            print("New task recieved")
+            self.tasks.pop()
+       
+        
+        if len(self.tasks) <= 4: # if there are no current task
+            # create and add a new task 
+            if msg.ids == "1": # Position 3D task
+                new_task = Position3D(msg.name,self.MM,np.array(msg.desired).reshape((3,1)))
+            elif msg.ids == "2":
+                new_task = MMPosition(msg.name, np.array(msg.desired).reshape(2,1))
+            elif msg.ids == "3":
+                new_task = JointPosition(msg.name, self.MM, np.array(msg.desired).reshape((1,1)))
+            else:
+                pass
+                
+            self.tasks.append(new_task)
+            
+            
+            
+            
+                 
         
     def joint_pos_callback(self, msg):
         #filter out the passive joints 
@@ -566,7 +623,7 @@ class MobileManipulator:
 
         # Whole Jacobian 
         JB = self.getMbaseJacobian()
-        print ("JB: ", JB)
+        # print ("JB: ", JB)
         J = np.zeros((4, 6))
         J[:, 0] = JB[[0,1,2,-1],0].reshape((4))                        # derivertive by m1
         J[:, 1] = JB[[0,1,2,-1],1].reshape((4))                        # derivertive by m2
@@ -599,7 +656,7 @@ class MobileManipulator:
 
         T  = kinematics(dExt, thetaExt, aExt, alphaExt, Tb)
         JB = jacobian(T, self.revolute + [True])
-        print ("JB: ", JB)
+        # print ("JB: ", JB)
 
         return JB
         
