@@ -96,9 +96,9 @@ class Position3D(Task):
 
         self.err = np.array(self.getDesired() - current_position).reshape(3,1) # Update task error
         self.erroVec.append(np.linalg.norm(self.err))
-        if np.linalg.norm(self.err) < 0.1:
+        if np.linalg.norm(self.err) < 0.01:
             # self.err = np.zeros((2,1))
-            rospy.logerr("end-effector position reached")
+            rospy.loginfo("end-effector position reached")
 
     def setRandomDesired(self):
         #random = (np.random.rand(2,1)*4-2).reshape((2,1))
@@ -287,7 +287,8 @@ class JointPosition(Task):
         self.desired_joint_number = desired_joint_number
         self.setK(np.eye(1))
         self.active = True
-    
+        self.update(robot)
+        
     def update(self, robot):
         DoF     = robot.dof
         # Update Jacobean matrix - task Jacobian
@@ -322,7 +323,7 @@ class MMPosition(Task):
         self.err = self.k @ (self.getDesired() - robot.eta[0:2].reshape((2, 1)))
         if np.linalg.norm(self.err) < 0.1:
             self.err = np.zeros((2,1))
-            rospy.logerr("mobile base position reached")
+            rospy.loginfo("mobile base position reached")
 
 def wrapangle(angle):
     # Wrap angle to the range [-pi, pi]

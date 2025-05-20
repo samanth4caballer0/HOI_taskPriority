@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import tf2_ros
 import rospy
 from nav_msgs.msg import Odometry
@@ -34,15 +36,16 @@ class TP_controller:
         self.j2_limit = JointLimit2D("joint 2 limit", 1, j2_limits, tresholds=[0.05, 0.08])
         self.j3_limit = JointLimit2D("joint 3 limit", 2, j3_limits, tresholds=[0.05, 0.08])
         self.j4_limit = JointLimit2D("joint 4 limit", 3, j4_limits, tresholds=[0.05, 0.08])
-        self.j1_pos = JointPosition("joint 1 position", self.MM, 1,np.array([1.5]).reshape((1,1)))   #change desired value directly here in n.array
+        self.j1_pos = JointPosition("joint 1 position", self.MM, 1,np.array([(-np.pi/2)-0.1]).reshape((1,1)))   #change desired value directly here in n.array (tried 1.5 and it completely retracted)
         #receives desired sigma from 3d_goal2 node 
-        self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.2, 0.0, -0.25]).reshape((3,1)))
+        self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.0, 0.0, 0.0]).reshape((3,1)))
         self.orientation_task = Orientation2D("orientation",self.MM, np.array([0.0]))
         self.mm_pos = MMPosition("mobile base position", np.array([2, 4]).reshape(2,1))
-        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit]   
+        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit, self.position_task]   
         #self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,
         #if task not on list, append it and pop the previous (last) one [-1] 
         
+        #settings for the path marker
         self.color_red = ColorRGBA()
         self.color_red.r = 1
         self.color_red.g = 0
@@ -54,7 +57,6 @@ class TP_controller:
         self.color_blue.b = 1
         self.color_blue.a = 1 
         self.color = self.color_blue
-                
         self.m = Marker()
         self.start_time = rospy.Time.now().to_sec()
         self.request_goal_pub = rospy.Publisher('/goal_request', Bool, queue_size=10)
@@ -63,9 +65,9 @@ class TP_controller:
         #self.publish_static_transform()  
         
         #self.ee_pub = rospy.Publisher('/end_effector', Odometry, queue_size=10)
-        self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)
+        self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)  #para visualilzar el correcto funcionamiento de la cinematica directa
         self.joint_velocity_pub = rospy.Publisher('/turtlebot/swiftpro/joint_velocity_controller/command', Float64MultiArray, queue_size=10)
-        self.error_pub = rospy.Publisher('/task_error', Float64MultiArray, queue_size=10)
+        self.error_pub = rospy.Publisher('/task_error', Float64MultiArray, queue_size=10)   # ni lo llamas!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         #publish path marker (to visualize path OF the end effector and make sure it is in straight line)
         self.path_pub = rospy.Publisher('/path', Marker, queue_size=10)
@@ -83,7 +85,7 @@ class TP_controller:
         rospy.sleep(0.3)
         self.request_goal_pub.publish(True)
         
-        #command veloctiy publisher 
+        #command veloctiy publisher #TODO
         self.cmd_vel= rospy.Publisher('/turtlebot/kobuki/commands/velocity', Twist, queue_size=10)
         
         odom_sim_topic = "/turtlebot/kobuki/odom" # odometry topic for simulation
@@ -118,7 +120,7 @@ class TP_controller:
         for task in self.tasks:
             task.update(self.MM) 
             if task.isActive():
-                J = task.getJacobian()                          # task full Jacobian TODO SHOULDNT THIS BE task.get_MMJacobian()?
+                J = task.getJacobian()                          # task full Jacobian 
                 Jbar = (J @ null_space)                      # projection of task in null-space
                 Jbar_inv = self.weighted_DLS(Jbar, 0.004,W)                    # pseudo-inverse or DLS
                 dq_i = Jbar_inv @ ((task.getK()*0.2@task.getError()-J@dq))
@@ -333,9 +335,6 @@ class TP_controller:
             self.tasks.append(new_task)
             
             
-            
-            
-                 
         
     def joint_pos_callback(self, msg):
         #filter out the passive joints 

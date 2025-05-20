@@ -6,7 +6,6 @@ from tf.transformations import quaternion_from_euler
 from std_srvs.srv import SetBool
 import actionlib
 
-
 import py_trees
 import py_trees.decorators
 import py_trees.display
@@ -15,10 +14,11 @@ from py_trees.blackboard import Blackboard
 from .tasks import *
 from HOI_taskPriority.msg import TaskMsg
 from std_msgs.msg import Float64MultiArray
-from config import *
+from HOI_taskPriority.config import *
 from nav_msgs.msg import Odometry
-import tf
 import operator 
+import tf
+
 
 
 class ScanObject(py_trees.behaviour.Behaviour):
@@ -42,7 +42,7 @@ class ScanObject(py_trees.behaviour.Behaviour):
         self.logger.debug("  %s [ScanObject::initialise()]" % self.name)
         # SUBSCRIBERS
         # Subcribe to get aruco pose
-        self.aruco_pose_object_sub      = rospy.Subscriber(aruco_pose_topic, PoseStamped, self.arucoPoseCB)
+        self.aruco_pose_object_sub  = rospy.Subscriber(aruco_pose_topic, PoseStamped, self.arucoPoseCB)
         time.sleep(0.2)
 
     def update(self):            

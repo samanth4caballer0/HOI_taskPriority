@@ -1,8 +1,20 @@
 <launch>
     <!-- Include a launch file from another package (simulator of arm manipulator only) -->
-    <include file="$(find turtlebot_simulation)/launch/turtlebot_hoi.launch" />
+    <!-- <include file="$(find turtlebot_simulation)/launch/turtlebot_hoi.launch" /> -->
+
+    <include file="$(find localization)/launch/turtlebot_localization.launch">
+        <arg name="robot_name" value="turtlebot"/>
+        <arg name="simulation_data" value="$(find turtlebot_simulation)/resources"/>
+        <arg name="scenario_description" value="$(find turtlebot_simulation)/scenarios/turtlebot_hoi.scn"/>
+        <arg name="simulation_rate" value="1000.0"/>
+        <arg name="graphics_resolution" value="1200 800"/>
+        <arg name="graphics_quality" value="high"/>
+    </include>
+
+
+
 
     <!-- Start a node from the current package -->
-    <node pkg="HOI_taskPriority" type="TP_control_node" name="TP_control_node" output="screen" />
+    <!-- <node pkg="HOI_taskPriority" type="TP_control_node" name="TP_control_node" output="screen" /> -->
 </launch>
 
