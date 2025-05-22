@@ -231,6 +231,7 @@ class MBPosition(Task):
         J[0,:2] = JB[0,:2]
         J[1,:2] = JB[1,:2]
         self.J  = J
+        print("Jacobian: ", self.J)
         # Update task error
         self.err = self.k @ (self.getDesired() - robot.eta[0:2].reshape((2, 1)))
         if np.linalg.norm(self.err) < 0.1:

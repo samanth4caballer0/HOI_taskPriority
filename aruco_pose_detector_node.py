@@ -27,7 +27,7 @@ class ArucoDetection:
         self.camera_info_sub = rospy.Subscriber("/turtlebot/kobuki/realsense/color/camera_info", CameraInfo, self.camerainfoCallback) 
     
         #subscribe to the odometry topic to use later for transformation from world NED to robot base_footprint
-        self.odom_sub = rospy.Subscriber("/turtlebot/kobuki/SLAM/EKF_odom", Odometry, self.odomCallback) 
+        self.odom_sub = rospy.Subscriber("/turtlebot/kobuki/odom_ground_truth", Odometry, self.odomCallback) 
 
         #PUBLISHERS 
         #publish pose of aruco marker in the world frame 

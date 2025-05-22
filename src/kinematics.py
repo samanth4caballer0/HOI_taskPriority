@@ -88,7 +88,7 @@ class TP_controller:
         #command veloctiy publisher #TODO
         self.cmd_vel= rospy.Publisher('/turtlebot/kobuki/commands/velocity', Twist, queue_size=10)
         
-        odom_sim_topic = "/turtlebot/kobuki/SLAM/EKF_odom" # odometry topic for simulation
+        odom_sim_topic = "/turtlebot/kobuki/odom_ground_truth" # odometry topic for simulation
         #subscribe to the odometry topic to use later for transformation from world NED to robot base_footprint
         self.odom_sub = rospy.Subscriber(odom_sim_topic, Odometry, self.odomCallback) 
         self.rviz_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.rvizCallback) 
@@ -116,8 +116,8 @@ class TP_controller:
 
         s = []
         W = np.eye(6) 
-        W[0,0] = 70
-        W[1,1] = 70
+        W[0,0] = 100    #300?
+        W[1,1] = 100
         for task in self.tasks:
             task.update(self.MM) 
             if task.isActive():
@@ -157,7 +157,7 @@ class TP_controller:
         # publish the cmd_vel message
         cmd_vel = Twist()
         cmd_vel.linear.x = M2
-        cmd_vel.angular.z = M1*0.1
+        cmd_vel.angular.z = -M1
         self.cmd_vel.publish(cmd_vel)
         # print("cmd_vel", cmd_vel)
         # print ("dq: ", dq)
@@ -331,7 +331,7 @@ class TP_controller:
 
     ########## TASK MANAGER ##########
     def task_callback(self, msg):
-        print(len(self.tasks))
+        # print(len(self.tasks))
 
         if len(self.tasks) > 4 and self.tasks[-1].name != msg.name: # if the task is changed
             print("New task recieved")

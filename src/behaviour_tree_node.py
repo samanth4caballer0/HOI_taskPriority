@@ -158,7 +158,7 @@ class ApproachBasetoObject(py_trees.behaviour.Behaviour):               ####TODO
         task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1]]       #subtract from each (x and Y) a distance of like 15cm 
         self.task_publisher.publish(task_msg)
         print(self.err)
-        if  abs(self.err[0]) < 0.6 and abs(self.err[1]) < 0.6:
+        if  abs(self.err[0]) < 0.45 and abs(self.err[1]) < 0.45:
             self.logger.debug("  %s [ApproachBaseObject::Update() SUCCESS]" % self.name)
             return py_trees.common.Status.SUCCESS
         else: 
@@ -206,7 +206,7 @@ class ApproachEEtoObject(py_trees.behaviour.Behaviour):
         task_msg = TaskMsg()
         task_msg.ids = "1"
         task_msg.name = "ApproachEEtoObject"
-        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.25]     #-0.3 why? 
+        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.35]     #-0.3 why? 
         self.task_publisher.publish(task_msg)
         print(np.linalg.norm(self.err))
         if  np.linalg.norm(self.err)< 0.06:
@@ -257,10 +257,10 @@ class LowerEEToObject(py_trees.behaviour.Behaviour):
         task_msg = TaskMsg()
         task_msg.ids = "1"
         task_msg.name = "LowerEEtoObject"
-        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.153]
+        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.150]   #-0.153
         self.task_publisher.publish(task_msg)
         print(self.err)
-        if  np.linalg.norm(self.err)< 0.004:
+        if  self.err[2] < 0.004:
             self.logger.debug("  %s [LowerEEtoObject::Update() SUCCESS]" % self.name)
             return py_trees.common.Status.SUCCESS
         else:
@@ -329,7 +329,7 @@ class PickupObject(py_trees.behaviour.Behaviour):
         task_msg = TaskMsg()
         task_msg.ids = "1"
         task_msg.name = "PickupObject"
-        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.3]     #-0.3 why? 
+        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.33]     #-0.3 why? 
         self.task_publisher.publish(task_msg)
         time.sleep(1.0)
         # SUBSCRIBERS
@@ -347,7 +347,7 @@ class PickupObject(py_trees.behaviour.Behaviour):
         task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.3]     #-0.3 why? 
         self.task_publisher.publish(task_msg)
         print(np.linalg.norm(self.err))
-        if  np.linalg.norm(self.err)< 0.003:
+        if  self.err[2] < 0.004:    #np.linalg.norm(self.err)< 0.003:    
             self.logger.debug("  %s [PickupObject::Update() SUCCESS]" % self.name)
             return py_trees.common.Status.SUCCESS
         else:
