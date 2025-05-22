@@ -78,7 +78,7 @@ class Position3D(Task):
     def __init__(self, name, robot,desired):
         super().__init__(name, desired) # desired position
         self.J = np.zeros((3,robot.dof))                            # Initialize with proper dimensions
-        self.err = np.zeros((3,1))                                  # Initialize with proper dimensions
+        self.err = np.ones((3,1)) *99999999                          # Initialize with proper dimensions
         self.setK(np.eye(3))
         self.setFF(np.zeros((3,1)))
         self.active = True
@@ -136,6 +136,112 @@ class Orientation2D(Task):
     def setRandomDesired(self):
         self.setDesired( (np.random.rand(1,1)*2*np.pi-np.pi).reshape((1,1)))
         pass
+
+'''
+    Subclass of Task, representing joint limits (inequality task).
+'''
+class JointLimit2D(Task)    :
+    def __init__(self, name, joint, limits, tresholds):
+        super().__init__(name, None)
+        self.joint = joint
+        self.limits = limits
+        self.activation_tresh = tresholds[0]
+        self.deactivation_tresh = tresholds[1]
+        self.J = np.zeros((1,6))# Initialize with proper dimensions
+        self.err = np.zeros((1,1))# Initialize with proper dimensions
+        self.setK(np.eye(1))
+        self.setFF(np.zeros((1,1)))
+        self.active = 0
+
+    def update(self, robot):
+        self.J = np.zeros((1,robot.dof))   # Update task Jacobian
+        self.J[:,self.joint+2] = 1
+        current_sigma = robot.q[self.joint] # Compute current sigma
+        self.activate(current_sigma)
+        # print('current_sigma:',current_sigma)
+        self.err = np.array([self.active]) # Update task error
+        # print ("angular error: ", self.err)
+        self.erroVec.append(self.err)
+        pass # to remove
+
+    
+    def activate (self, angle):
+        if self.active == 0 and angle >=  self.limits[1] - self.activation_tresh:
+            self.active = -1
+        elif self.active == 0 and angle <= self.limits[0] + self.activation_tresh:
+            self.active = 1
+        elif self.active == -1 and angle <= self.limits[1] - self.deactivation_tresh:
+            self.active = 0
+        elif self.active == 1 and angle >= self.limits[0] + self.deactivation_tresh:
+            self.active = 0
+    
+    def isActive(self):
+        return bool(abs(self.active))
+
+
+    def setRandomDesired(self):
+        self.setDesired( (np.random.rand(1,1)*2*np.pi-np.pi).reshape((1,1)))
+        pass
+
+'''
+    Subclass of Task, representing joint [0:5] position task.
+'''
+    
+class JointPosition(Task):
+    def __init__(self, name, robot,desired_joint_number, desired):
+        super().__init__(name, desired)
+        self.desired_joint_number = desired_joint_number
+        self.setK(np.eye(1))
+        self.active = True
+        self.err = np.ones((2,1))*100000
+        self.update(robot)
+        
+    def update(self, robot):
+        DoF     = robot.dof
+        # Update Jacobean matrix - task Jacobian
+        self.J = np.array(
+            [
+                1 if i == self.desired_joint_number + 2 else 0
+                for i in range(DoF)
+            ]
+        ).reshape((1, DoF))
+
+        self.err = self.k * (
+            np.array(
+                [self.getDesired() - robot.q[self.desired_joint_number]]
+            ).reshape((1, 1))
+        ) 
+
+"""
+    Subclass of Task, representing the position of the mobile base task.
+""" 
+class MBPosition(Task):
+     
+    def __init__(self, name, desired):
+        super().__init__(name, desired)
+        self.setK(np.eye(2)*1)
+        self.active = True
+        self.err = np.ones((2,1))*100000
+
+    def update(self, robot):
+        DoF     = robot.dof
+        # Update Jacobean matrix - task Jacobian
+        JB = robot.getMbaseJacobian()
+        J = np.zeros((2,DoF))
+        J[0,:2] = JB[0,:2]
+        J[1,:2] = JB[1,:2]
+        self.J  = J
+        # Update task error
+        self.err = self.k @ (self.getDesired() - robot.eta[0:2].reshape((2, 1)))
+        if np.linalg.norm(self.err) < 0.1:
+            self.err = np.zeros((2,1))
+            rospy.loginfo("mobile base position reached")
+
+def wrapangle(angle):
+    # Wrap angle to the range [-pi, pi]
+    return (angle + np.pi) % (2 * np.pi) - np.pi
+
+
 """
 '''
     Subclass of Task, representing the 2D configuration task.
@@ -238,93 +344,3 @@ class Obstacle2D(Task):
         print ("angular error: ", self.err)
         pass # to remove
 """
-class JointLimit2D(Task)    :
-    def __init__(self, name, joint, limits, tresholds):
-        super().__init__(name, None)
-        self.joint = joint
-        self.limits = limits
-        self.activation_tresh = tresholds[0]
-        self.deactivation_tresh = tresholds[1]
-        self.J = np.zeros((1,6))# Initialize with proper dimensions
-        self.err = np.zeros((1,1))# Initialize with proper dimensions
-        self.setK(np.eye(1))
-        self.setFF(np.zeros((1,1)))
-        self.active = 0
-
-    def update(self, robot):
-        self.J = np.zeros((1,robot.dof))   # Update task Jacobian
-        self.J[:,self.joint+2] = 1
-        current_sigma = robot.q[self.joint] # Compute current sigma
-        self.activate(current_sigma)
-        # print('current_sigma:',current_sigma)
-        self.err = np.array([self.active]) # Update task error
-        # print ("angular error: ", self.err)
-        self.erroVec.append(self.err)
-        pass # to remove
-
-    
-    def activate (self, angle):
-        if self.active == 0 and angle >=  self.limits[1] - self.activation_tresh:
-            self.active = -1
-        elif self.active == 0 and angle <= self.limits[0] + self.activation_tresh:
-            self.active = 1
-        elif self.active == -1 and angle <= self.limits[1] - self.deactivation_tresh:
-            self.active = 0
-        elif self.active == 1 and angle >= self.limits[0] + self.deactivation_tresh:
-            self.active = 0
-    
-    def isActive(self):
-        return bool(abs(self.active))
-
-
-    def setRandomDesired(self):
-        self.setDesired( (np.random.rand(1,1)*2*np.pi-np.pi).reshape((1,1)))
-        pass
-    
-class JointPosition(Task):
-    def __init__(self, name, robot,desired_joint_number, desired):
-        super().__init__(name, desired)
-        self.desired_joint_number = desired_joint_number
-        self.setK(np.eye(1))
-        self.active = True
-        self.update(robot)
-        
-    def update(self, robot):
-        DoF     = robot.dof
-        # Update Jacobean matrix - task Jacobian
-        self.J = np.array(
-            [
-                1 if i == self.desired_joint_number + 2 else 0
-                for i in range(DoF)
-            ]
-        ).reshape((1, DoF))
-
-        self.err = self.k * (
-            np.array(
-                [self.getDesired() - robot.q[self.desired_joint_number]]
-            ).reshape((1, 1))
-        ) 
-
-class MMPosition(Task):
-    def __init__(self, name, desired):
-        super().__init__(name, desired)
-        self.setK(np.eye(2)*3)
-        self.active = True
-
-    def update(self, robot):
-        DoF     = robot.dof
-        # Update Jacobean matrix - task Jacobian
-        JB = robot.getMbaseJacobian()
-        J = np.zeros((2,DoF))
-        J[0,:2] = JB[0,:2]
-        J[1,:2] = JB[1,:2]
-        self.J  = J
-        # Update task error
-        self.err = self.k @ (self.getDesired() - robot.eta[0:2].reshape((2, 1)))
-        if np.linalg.norm(self.err) < 0.1:
-            self.err = np.zeros((2,1))
-            rospy.loginfo("mobile base position reached")
-
-def wrapangle(angle):
-    # Wrap angle to the range [-pi, pi]
-    return (angle + np.pi) % (2 * np.pi) - np.pi

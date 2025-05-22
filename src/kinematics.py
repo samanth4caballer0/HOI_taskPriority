@@ -15,7 +15,7 @@ from std_msgs.msg import Float64MultiArray, Bool
 from geometry_msgs.msg import PoseStamped, Point, Quaternion, TransformStamped
 from visualization_msgs.msg import Marker
 from std_msgs.msg import ColorRGBA
-from tasks import Position3D, Orientation2D, JointLimit2D, JointPosition, MMPosition
+from tasks import Position3D, Orientation2D, JointLimit2D, JointPosition, MBPosition
 from HOI_taskPriority.msg import TaskMsg
 
 def wrap_angle(angle): 
@@ -36,12 +36,12 @@ class TP_controller:
         self.j2_limit = JointLimit2D("joint 2 limit", 1, j2_limits, tresholds=[0.05, 0.08])
         self.j3_limit = JointLimit2D("joint 3 limit", 2, j3_limits, tresholds=[0.05, 0.08])
         self.j4_limit = JointLimit2D("joint 4 limit", 3, j4_limits, tresholds=[0.05, 0.08])
-        self.j1_pos = JointPosition("joint 1 position", self.MM, 1,np.array([(-np.pi/2)-0.1]).reshape((1,1)))   #change desired value directly here in n.array (tried 1.5 and it completely retracted)
+        self.j1_pos = JointPosition("joint 1 position", self.MM, 0,np.array([1.571,]).reshape((1,1)))   #change desired value directly here in n.array (tried 1.5 and it completely retracted)
         #receives desired sigma from 3d_goal2 node 
         self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.0, 0.0, 0.0]).reshape((3,1)))
         self.orientation_task = Orientation2D("orientation",self.MM, np.array([0.0]))
-        self.mm_pos = MMPosition("mobile base position", np.array([2, 4]).reshape(2,1))
-        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit, self.position_task]   
+        self.mm_pos = MBPosition("mobile base position", np.array([2, 4]).reshape(2,1))
+        self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit]   
         #self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit,
         #if task not on list, append it and pop the previous (last) one [-1] 
         
@@ -67,7 +67,7 @@ class TP_controller:
         #self.ee_pub = rospy.Publisher('/end_effector', Odometry, queue_size=10)
         self.ee_pub = rospy.Publisher('/end_effector', PoseStamped, queue_size=10)  #para visualilzar el correcto funcionamiento de la cinematica directa
         self.joint_velocity_pub = rospy.Publisher('/turtlebot/swiftpro/joint_velocity_controller/command', Float64MultiArray, queue_size=10)
-        self.error_pub = rospy.Publisher('/task_error', Float64MultiArray, queue_size=10)   # ni lo llamas!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+        self.error_pub= rospy.Publisher('/task_error', Float64MultiArray, queue_size=10)   # ni lo llamas!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
         #publish path marker (to visualize path OF the end effector and make sure it is in straight line)
         self.path_pub = rospy.Publisher('/path', Marker, queue_size=10)
@@ -88,7 +88,7 @@ class TP_controller:
         #command veloctiy publisher #TODO
         self.cmd_vel= rospy.Publisher('/turtlebot/kobuki/commands/velocity', Twist, queue_size=10)
         
-        odom_sim_topic = "/turtlebot/kobuki/odom" # odometry topic for simulation
+        odom_sim_topic = "/turtlebot/kobuki/SLAM/EKF_odom" # odometry topic for simulation
         #subscribe to the odometry topic to use later for transformation from world NED to robot base_footprint
         self.odom_sub = rospy.Subscriber(odom_sim_topic, Odometry, self.odomCallback) 
         self.rviz_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.rvizCallback) 
@@ -116,7 +116,8 @@ class TP_controller:
 
         s = []
         W = np.eye(6) 
-        W[0,0] = 0.5
+        W[0,0] = 70
+        W[1,1] = 70
         for task in self.tasks:
             task.update(self.MM) 
             if task.isActive():
@@ -127,25 +128,36 @@ class TP_controller:
                 dq += dq_i      # calculate quasi-velocities with null-space tasks execution
                 null_space = null_space - np.linalg.pinv(Jbar) @ Jbar   # update null-space projector
                 # print ("task: ", task.name)
-                s_i = np.linalg.norm(dq_i) / np.max(abs(dq_i))
-                # print( "s_i",(s_i))
-                s.append(s_i)
-        
+        for dq_i in dq:
+            # print("dq_i", (dq_i))
+            # print("dq", (dq))
+            s_i = np.abs(dq_i) / (np.max(abs(dq)) +0.00001)   #nilandnormwhy??
+            # print( "s_i",(s_i))
+            s.append(s_i)
+                
+        #velocity scaling
         if s != []:   
             s_max = max(s)
             # print("s_max", (s_max))
             if s_max >1:
-                dq = dq/s_max
-        
+                # dq *= dq/s_max   # dq *= 0.2 ??? a cada dq sacarle la escala a cada uno de ellos con su respectivo limite (en absoluto) si la escala max es mayor a 1 se dividen todas entre el maximo 
+                dq *= 0.2
         ############# ACCESSING MOBILE BASE dq################ 
         #access the velocity of the base joints M1 (angular) M2 (linear in x direction) 
-        M1 = self.cap_velocities(dq[0,0]) #angular velocity of the base joint
-        M2 = self.cap_velocities(dq[1,0]) #linear velocity of the base joint
+        M1 = self.cap_velocities  (dq[0,0]) #angular velocity of the base joint    self.cap_velocities  
+        M2 = self.cap_velocities  (dq[1,0]) #linear velocity of the base joint     self.cap_velocities     
         
+        
+        if len(self.tasks) < 5:
+            cmd_vel = Twist()
+            cmd_vel.linear.x = 0
+            cmd_vel.angular.z = 0
+            self.cmd_vel.publish(cmd_vel)
+            
         # publish the cmd_vel message
         cmd_vel = Twist()
         cmd_vel.linear.x = M2
-        cmd_vel.angular.z = M1
+        cmd_vel.angular.z = M1*0.1
         self.cmd_vel.publish(cmd_vel)
         # print("cmd_vel", cmd_vel)
         # print ("dq: ", dq)
@@ -158,7 +170,7 @@ class TP_controller:
     
         #cap the base joint velocities to a maximum of 0.3 
     def cap_velocities(self, dq): 
-        dq = np.clip(dq, -0.3, 0.3)
+        dq = np.clip(dq, -10000.0, 10000.0) # cap the base joint velocities to a maximum of 0.3
         # if abs(dq) < 0.03:
         #     dq = 0
         return dq
@@ -198,13 +210,15 @@ class TP_controller:
         #publish the odom message 
         self.ee_pub.publish(ee_pose)
         
-        goal = PoseStamped()
-        goal.header.frame_id = "world_ned"
-        goal.pose.position.x = self.position_task.sigma_d[0,0]
-        goal.pose.position.y = self.position_task.sigma_d[1,0]
-        goal.pose.position.z = self.position_task.sigma_d[2,0]
-        
-        self.goal_pub.publish(goal)
+        if len(self.tasks) > 4 and len(self.tasks[-1].sigma_d) == 3 :
+
+            goal = PoseStamped()
+            goal.header.frame_id = "world_ned"
+            goal.pose.position.x = self.tasks[-1].sigma_d[0,0]
+            goal.pose.position.y = self.tasks[-1].sigma_d[1,0]
+            goal.pose.position.z = self.tasks[-1].sigma_d[2,0]
+            
+            self.goal_pub.publish(goal)
         # control part
         # Publish the joint velocity command
         #dq  = np.zeros((self.MM.dof, 1))
@@ -219,20 +233,21 @@ class TP_controller:
         if len(self.tasks)> 4:
             error = Float64MultiArray()
             error.data = self.tasks[-1].getError().flatten().tolist()
-        
-        self.MM.get_error()
-        # publish the path marker
-        if self.MM.error_magnitude < self.MM.threshold_distance :
-            print ("goal reached")
-            self.start_time = rospy.Time.now().to_sec()
-            self.request_goal_pub.publish(True)
-            self.m = Marker() 
+            self.error_pub.publish(error)
+            
+        # self.MM.get_error()
+        # # publish the path marker
+        # if self.MM.error_magnitude < self.MM.threshold_distance :
+        #     print ("goal reached")
+        #     self.start_time = rospy.Time.now().to_sec()
+        #     self.request_goal_pub.publish(True)
+        #     self.m = Marker() 
 
-        # if 10 seconds have passed, ask for a new goal
-        if rospy.Time.now().to_sec() - self.start_time > 15:
-            self.request_goal_pub.publish(True)
-            self.start_time = rospy.Time.now().to_sec()
-            self.m = Marker()
+        # # if 10 seconds have passed, ask for a new goal
+        # if rospy.Time.now().to_sec() - self.start_time > 15:
+        #     self.request_goal_pub.publish(True)
+        #     self.start_time = rospy.Time.now().to_sec()
+        #     self.m = Marker()
 
     
     #path marker to visualize end effector trajectory. ee_position task debug 
@@ -314,7 +329,9 @@ class TP_controller:
         self.mm_pos.setDesired(np.array([x, y]).reshape(-1, 1))
         self.orientation_task.setDesired(np.array([yaw]).reshape(-1, 1))
 
+    ########## TASK MANAGER ##########
     def task_callback(self, msg):
+        print(len(self.tasks))
 
         if len(self.tasks) > 4 and self.tasks[-1].name != msg.name: # if the task is changed
             print("New task recieved")
@@ -325,15 +342,18 @@ class TP_controller:
             # create and add a new task 
             if msg.ids == "1": # Position 3D task
                 new_task = Position3D(msg.name,self.MM,np.array(msg.desired).reshape((3,1)))
+                self.tasks.append(new_task)
             elif msg.ids == "2":
-                new_task = MMPosition(msg.name, np.array(msg.desired).reshape(2,1))
+                new_task = MBPosition(msg.name, np.array(msg.desired).reshape(2,1))
+                self.tasks.append(new_task)
             elif msg.ids == "3":
-                new_task = JointPosition(msg.name, self.MM, np.array(msg.desired).reshape((1,1)))
+                new_task = JointPosition(msg.name, self.MM, 0, np.array(msg.desired).reshape((1,1)))    #TODO later make (desired joint-arg 3) customizable from behavior tree node
+                self.tasks.append(new_task)
             else:
                 pass
                 
-            self.tasks.append(new_task)
             
+
             
         
     def joint_pos_callback(self, msg):
@@ -643,7 +663,7 @@ class MobileManipulator:
         Tb = translation2D(x, y) @ rotation2D(yaw)
 
         # Modify the theta of the base joint, to account for an additional Z rotation
-        theta = float(self.q[0,0]-deg90)
+        theta = float(wrap_angle(self.q[0,0]-deg90))
 
         # Combined system kinematics (DH parameters extended with base DOF)
         thetaExt    = np.concatenate([np.array([deg90,                      0]),    np.array([theta])])

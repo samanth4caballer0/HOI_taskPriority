@@ -12,7 +12,7 @@ from sensor_msgs.msg import Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 import matplotlib.pyplot as plt
 import tf
-from HOI_taskPriority.config import *
+from config import *
 
 
 class ArucoDetection:
@@ -174,7 +174,8 @@ def create_homogeneous_transform(rotation_matrix, translation_vector):
 if __name__ == "__main__":
 
     print("ARUCO POSE DETECTOR NODE INITIALIZED")
-    
+    # print(cv2.__version__)
+    # print(cv2.__file__)  
     rospy.init_node('aruco_pose_detector_node')   
     
     node = ArucoDetection()
