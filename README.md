@@ -6,7 +6,7 @@
 
 To run the simulation using the provided commands, follow these steps:
 
-1. Launch the Stonefish Simulation in ArUco+ Rviz :
+1. Launch the Stonefish Simulation + Rviz :
    ```bash
    roslaunch hoi_taskpriority hoi.launch
    ```
