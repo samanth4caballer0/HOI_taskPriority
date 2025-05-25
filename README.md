@@ -1,5 +1,5 @@
 # HOI_taskPriority - ROS Package
-(By Samantha Caballero)
+(By: Raul Musito, Carlos Pazos, Samantha Caballero)
 
 
 ## Running the Simulation
