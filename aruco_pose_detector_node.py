@@ -129,6 +129,7 @@ class ArucoDetection:
                 aruco_position.pose.orientation.w = object_quaternion_world[3]
                 self.marker_pub.publish(aruco_position)
             
+            print ("Aruco ID:", ids)
             
         else :
             print("No Aruco detected")

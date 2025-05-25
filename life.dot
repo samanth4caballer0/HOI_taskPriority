@@ -1,0 +1,35 @@
+digraph pastafarianism {
+ordering=out;
+graph [fontname="times-roman"];
+node [fontname="times-roman"];
+edge [fontname="times-roman"];
+Life [fillcolor=orange, fontcolor=black, fontsize=9, label="Ⓜ Life", shape=box, style=filled];
+scan_object [fillcolor=gray, fontcolor=black, fontsize=9, label=scan_object, shape=ellipse, style=filled];
+Life -> scan_object;
+face_object [fillcolor=gray, fontcolor=black, fontsize=9, label=face_object, shape=ellipse, style=filled];
+Life -> face_object;
+approach_base_aruco_box [fillcolor=gray, fontcolor=black, fontsize=9, label=approach_base_aruco_box, shape=ellipse, style=filled];
+Life -> approach_base_aruco_box;
+scan_object_again [fillcolor=gray, fontcolor=black, fontsize=9, label=scan_object_again, shape=ellipse, style=filled];
+Life -> scan_object_again;
+approach_aruco_box [fillcolor=gray, fontcolor=black, fontsize=9, label=approach_aruco_box, shape=ellipse, style=filled];
+Life -> approach_aruco_box;
+lower_aruco_box [fillcolor=gray, fontcolor=black, fontsize=9, label=lower_aruco_box, shape=ellipse, style=filled];
+Life -> lower_aruco_box;
+enable_suction [fillcolor=gray, fontcolor=black, fontsize=9, label=enable_suction, shape=ellipse, style=filled];
+Life -> enable_suction;
+pickup_object [fillcolor=gray, fontcolor=black, fontsize=9, label=pickup_object, shape=ellipse, style=filled];
+Life -> pickup_object;
+handle_object [fillcolor=gray, fontcolor=black, fontsize=9, label=handle_object, shape=ellipse, style=filled];
+Life -> handle_object;
+approach_goal [fillcolor=gray, fontcolor=black, fontsize=9, label=approach_goal, shape=ellipse, style=filled];
+Life -> approach_goal;
+return_object [fillcolor=gray, fontcolor=black, fontsize=9, label=return_object, shape=ellipse, style=filled];
+Life -> return_object;
+ee_drop_object [fillcolor=gray, fontcolor=black, fontsize=9, label=ee_drop_object, shape=ellipse, style=filled];
+Life -> ee_drop_object;
+retract_ee [fillcolor=gray, fontcolor=black, fontsize=9, label=retract_ee, shape=ellipse, style=filled];
+Life -> retract_ee;
+disable_suction [fillcolor=gray, fontcolor=black, fontsize=9, label=disable_suction, shape=ellipse, style=filled];
+Life -> disable_suction;
+}

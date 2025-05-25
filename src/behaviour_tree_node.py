@@ -18,7 +18,7 @@ import operator
 import tf
 import numpy as np
 from tasks import *
-
+import rospkg
 
 class ScanObject(py_trees.behaviour.Behaviour):
     def __init__(self, name):
@@ -80,7 +80,7 @@ class FaceObject(py_trees.behaviour.Behaviour):
         super(FaceObject, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
         self.blackboard.register_key(
-            "orient_goal", access=py_trees.common.Access.WRITE)
+            "n_object", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(
             "orient_goal", access=py_trees.common.Access.READ)
     
@@ -257,10 +257,10 @@ class LowerEEToObject(py_trees.behaviour.Behaviour):
         task_msg = TaskMsg()
         task_msg.ids = "1"
         task_msg.name = "LowerEEtoObject"
-        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.150]   #-0.153
+        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.150]   #-0.153   150    -156
         self.task_publisher.publish(task_msg)
         print(self.err)
-        if  self.err[2] < 0.004:
+        if  self.err[2] < 0.005:
             self.logger.debug("  %s [LowerEEtoObject::Update() SUCCESS]" % self.name)
             return py_trees.common.Status.SUCCESS
         else:
@@ -307,6 +307,7 @@ class EnableSuction (py_trees.behaviour.Behaviour):
             return False
 
 class PickupObject(py_trees.behaviour.Behaviour):
+    # EE goes back to position above the aruco box. to tthen activate joint pos taask to put it back
     def __init__(self, name):
         super(PickupObject, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
@@ -329,7 +330,7 @@ class PickupObject(py_trees.behaviour.Behaviour):
         task_msg = TaskMsg()
         task_msg.ids = "1"
         task_msg.name = "PickupObject"
-        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.33]     #-0.3 why? 
+        task_msg.desired = [self.blackboard.goal[0], self.blackboard.goal[1], -0.3]     #-0.3 why? 
         self.task_publisher.publish(task_msg)
         time.sleep(1.0)
         # SUBSCRIBERS
@@ -362,7 +363,7 @@ class PickupObject(py_trees.behaviour.Behaviour):
         if len(err.data) == 3:
             self.err = np.array([err.data[0], err.data[1], err.data[2]])    
 
-class HandleObject(py_trees.behaviour.Behaviour):
+class HandleObject(py_trees.behaviour.Behaviour):           #joint 0 position task to turn the arm backwards
     def __init__(self, name):
         super(HandleObject, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
@@ -462,7 +463,7 @@ class ApproachGoal(py_trees.behaviour.Behaviour):               ####TODO fix des
         if len(err.data) == 2:
             self.err = np.array([err.data[0], err.data[1]])    
 
-class ReturnObject(py_trees.behaviour.Behaviour):
+class ReturnObject(py_trees.behaviour.Behaviour):               #joint 0 position task to turn the arm back to forward position
     def __init__(self, name):
         super(ReturnObject, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
@@ -494,7 +495,7 @@ class ReturnObject(py_trees.behaviour.Behaviour):
         task_msg = TaskMsg()
         task_msg.ids = "3"
         task_msg.name = "ReturnObject"
-        task_msg.desired = [np.pi/2.0] #or is it np.pi
+        task_msg.desired = [1.57] #or is it np.pi/2.0
         self.task_publisher.publish(task_msg)
 
         if  np.linalg.norm(self.err)< 0.1:
@@ -511,20 +512,67 @@ class ReturnObject(py_trees.behaviour.Behaviour):
     def get_err(self, err):
         self.err = np.array([err.data[0]])
 
-class LetObject (py_trees.behaviour.Behaviour):
+class EEdropObject(py_trees.behaviour.Behaviour):
     def __init__(self, name):
-        super(LetObject, self).__init__(name)
+        super(EEdropObject, self).__init__(name)
         self.blackboard = self.attach_blackboard_client(name=self.name)
         self.blackboard.register_key(
-            "n_object", access=py_trees.common.Access.READ)
+            "goal", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(
-            "n_object", access=py_trees.common.Access.WRITE)
-        self.blackboard.n_object = 1
+            "goal", access=py_trees.common.Access.READ)
+        
     def setup(self):
-        self.logger.debug("  %s [LetObject::setup()]" % self.name)
+        self.logger.debug("  %s [EEdropObject::setup()]" % self.name)
+
+        self.err = np.array([np.inf, np.inf, np.inf])
+        self.logger.debug("  %s [EEdropObject::setup() SUCCESS]" % self.name)
+
+    def initialise(self):
+        self.logger.debug("  %s [EEdropObject::initialise()]" % self.name)  
+        # PUBLISHERS
+        # Publisher for sending task to the TP control node
+        self.task_publisher = rospy.Publisher("/task", TaskMsg, queue_size=10)
+
+        # SUBSCRIBERS
+        #subscriber to task error 
+        self.task_err_sub = rospy.Subscriber("/task_error", Float64MultiArray, self.get_err) 
+
+        # Wait 0.2s to init pub and sub
+        time.sleep(1.0)
+           
+    def update(self):
+        
+        task_msg = TaskMsg()
+        task_msg.ids = "1"
+        task_msg.name = "EEdropObject"
+        task_msg.desired = [0, 0.2, -0.150] #157
+        self.task_publisher.publish(task_msg)
+        print(self.err)
+        if  np.linalg.norm(self.err)< 0.1:  #0.05
+            self.logger.debug("  %s [EEdropObject::Update() SUCCESS]" % self.name)
+            return py_trees.common.Status.SUCCESS
+        else:
+            self.logger.debug("  %s [EEdropObject::Update() RUNNING]" % self.name)
+            return py_trees.common.Status.RUNNING
+
+    def terminate(self, new_status):
+        self.logger.debug("  %s [EEdropObject::terminate().terminate()][%s->%s]" %
+                          (self.name, self.status, new_status))
+        
+    def get_err(self, err):
+        if len(err.data) == 3:
+            self.err = np.array([err.data[0], err.data[1], err.data[2]])    
+
+class DisableSuction (py_trees.behaviour.Behaviour):
+    def __init__(self, name):
+        super(DisableSuction, self).__init__(name)
+        self.blackboard = self.attach_blackboard_client(name=self.name)
+        
+    def setup(self):
+        self.logger.debug("  %s [DisableSuction::setup()]" % self.name)
     
     def initialise(self):
-        self.logger.debug("  %s [LetObject::initialise()]" % self.name)
+        self.logger.debug("  %s [DisableSuction::initialise()]" % self.name)
 
     def update(self):
         succes = self.disable_suction()
@@ -546,7 +594,65 @@ class LetObject (py_trees.behaviour.Behaviour):
         except rospy.ServiceException as e:
             print(f"Service call failed: {e}")
             return False
+
+class RetractEE(py_trees.behaviour.Behaviour):
+    def __init__(self, name):
+        super(RetractEE, self).__init__(name)
+        self.blackboard = self.attach_blackboard_client(name=self.name)
+        self.blackboard.register_key(
+            "n_object", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(
+            "n_object", access=py_trees.common.Access.READ)
+        self.blackboard.register_key(
+            "tree_complete", access=py_trees.common.Access.WRITE)
+        self.blackboard.n_object = 1        
+    
+    def setup(self):
+        self.logger.debug("  %s [RetractEE::setup()]" % self.name)
+        self.err = np.array([np.inf])
+        self.logger.debug("  %s [RetractEE::setup() SUCCESS]" % self.name)
         
+    def initialise(self):
+        self.logger.debug("  %s [RetractEE::initialise()]" % self.name)  
+        # PUBLISHERS
+        # Publisher for sending task to the TP control node
+        self.task_publisher = rospy.Publisher("/task", TaskMsg, queue_size=10)
+
+        # SUBSCRIBERS
+        #subscriber to task error 
+        self.task_err_sub = rospy.Subscriber("/task_error", Float64MultiArray, self.get_err) 
+
+        # Wait 0.2s to init pub and sub
+        time.sleep(1.0)
+    
+    def update(self):
+        #task error callbacj in behavior has dimension 1, as well as the desired. then the task is 3 instead of 1 
+        task_msg = TaskMsg()
+        task_msg.ids = "4"
+        task_msg.name = "RetractEE"
+        task_msg.desired = [-0.5] #or is it np.pi
+        self.task_publisher.publish(task_msg)
+
+        if  np.linalg.norm(self.err)< 0.1:
+            self.logger.debug("  %s [RetractEE::Update() SUCCESS]" % self.name)
+            self.blackboard.tree_complete = True  # Set flag indicating tree is complete
+            rospy.loginfo("Task sequence completed successfully. Terminating.")            
+            return py_trees.common.Status.SUCCESS
+        else:
+            self.logger.debug("  %s [RetractEE::Update() RUNNING]" % self.name)
+            return py_trees.common.Status.RUNNING
+
+
+    def terminate(self, new_status):
+        self.logger.debug("  %s [RetractEE::terminate().terminate()][%s->%s]" %
+                          (self.name, self.status, new_status))
+        
+    def get_err(self, err):
+        if len(err.data) == 1:
+
+            self.err = np.array([err.data[0]])
+
+    
 #   Create Behavior trees function
 def create_tree():
     # Special py_trees behavior
@@ -566,24 +672,16 @@ def create_tree():
     approach_base_to_object = ApproachBasetoObject(name="approach_base_aruco_box")
     approach_ee_to_object = ApproachEEtoObject(name="approach_aruco_box")
     scan_object_again = ScanObject(name="scan_object_again")
-
     lower_ee_to_object = LowerEEToObject(name="lower_aruco_box")
     enable_suction = EnableSuction(name="enable_suction")
     pickup_object = PickupObject(name="pickup_object")
     handle_object = HandleObject(name="handle_object")
     approach_goal = ApproachGoal(name="approach_goal")
     return_object = ReturnObject(name="return_object")
-    let_object = LetObject(name="let_object")
-    
-    # pick_object = PickObject(name="pick_object")
+    ee_drop_object = EEdropObject(name="ee_drop_object")
+    disable_suction = DisableSuction(name="disable_suction")
+    retract_EE = RetractEE(name="retract_ee")
 
-    # approach_base_to_place = ApproachBasePlace(name="approach_base_place")
-
-    # handle_manipulator_object= HandleManipulatorObject(name="handle_manipulator_object")
-
-    # approach_manipulator_to_place_object = ApproachManipulatorPlaceObject(name="approach_manipulator_place_object")
-
-    # let_object = LetObject(name="let_object")
 
     root = py_trees.composites.Sequence(name="Life", memory=True)    
     root.add_children([
@@ -598,13 +696,23 @@ def create_tree():
                             handle_object,
                             approach_goal,
                             return_object,
-                            let_object,
+                            ee_drop_object,                            
+                            disable_suction,
+                            retract_EE
                        ])
-    # py_trees.display.render_dot_tree(root)
+    py_trees.display.render_dot_tree(root)
     return root
+
 
 def run(it=10000):
     root = create_tree()
+    
+    # Fix the blackboard initialization
+    blackboard = py_trees.blackboard.Client(name="BehaviorTree")
+    blackboard.register_key("tree_complete", access=py_trees.common.Access.READ)
+    
+    # Initialize the tree_complete key on the actual Blackboard
+    py_trees.blackboard.Blackboard.set("tree_complete", False)
 
     try:
         print("Call setup for all tree children")
@@ -614,10 +722,28 @@ def run(it=10000):
         
         for _ in range(it):
             root.tick_once()
+            
+            # Check if tree is complete
+            if py_trees.blackboard.Blackboard.get("tree_complete"):
+                rospy.loginfo("Behavior tree completed all tasks successfully!")
+                break
+                
             time.sleep(0.1)
+            
     except KeyboardInterrupt:
         pass
+    
+    rospy.loginfo("Behavior tree execution finished")
 
+
+# save tree as image
+rospack = rospkg.RosPack()
+filepath = rospack.get_path("pick_up_objects_task")
+output_path = filepath + "/tree.png"  # Specify filename with extension
+
+# Create the behavior tree root before rendering
+root = create_tree()
+py_trees.display.render_dot_tree(root, target_directory=filepath)
 
 if __name__ == "__main__":
     py_trees.logging.level = py_trees.logging.Level.DEBUG

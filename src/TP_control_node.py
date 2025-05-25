@@ -25,8 +25,11 @@ class TP_controller:
     def __init__(self):
         rospy.init_node("TP_control_node")
         rospy.loginfo("Starting Task Priority Controller....")
+        rospy.Subscriber('/aruco_pose', PoseStamped, self.aruco_callback)
 
         self.MM = MobileManipulator() 
+        self.goal = [0, 0, -0.35]  # Default goal if no aruco is detected
+
         # Taskz
         j1_limits = np.array([-1.571, 1.571])
         j2_limits = np.array([-1.571, 0.050])
@@ -38,7 +41,7 @@ class TP_controller:
         self.j4_limit = JointLimit2D("joint 4 limit", 3, j4_limits, tresholds=[0.05, 0.08])
         self.j1_pos = JointPosition("joint 1 position", self.MM, 0,np.array([1.571,]).reshape((1,1)))   #change desired value directly here in n.array (tried 1.5 and it completely retracted)
         #receives desired sigma from 3d_goal2 node 
-        self.position_task = Position3D("cartesion 3D position",self.MM,np.array([0.0, 0.0, 0.0]).reshape((3,1)))
+        self.position_task = Position3D("cartesion 3D position",self.MM,np.array([self.goal[0], self.goal[1], self.goal[2]]).reshape((3,1)))
         self.orientation_task = Orientation2D("orientation",self.MM, np.array([0.0]))
         self.mm_pos = MBPosition("mobile base position", np.array([2, 4]).reshape(2,1))
         self.tasks = [self.j1_limit, self.j2_limit, self.j3_limit, self.j4_limit]   
@@ -108,6 +111,25 @@ class TP_controller:
     #         return dq
     #     else:
     #         return dq
+    
+    def aruco_callback(self, msg):
+        # Extract position from the aruco marker
+        x = msg.pose.position.x
+        y = msg.pose.position.y
+        
+        # Update the goal (keeping the z-coordinate constant or calculated as needed)
+        self.goal = [x, y, -0.150]  # Using -0.150 as in the lowerEEtoobject task
+        
+        # Update the position task's desired position
+        self.position_task.setDesired(np.array([x, y, -0.150]).reshape(-1, 1))
+        
+        # Optionally update other tasks or MM desired sigma as needed
+        self.MM.d_sigma = np.zeros((4))
+        self.MM.d_sigma[0] = x
+        self.MM.d_sigma[1] = y
+        self.MM.d_sigma[2] = -0.150
+        # Optionally set orientation if needed
+        # self.MM.d_sigma[3] = yaw
         
     def control_loop(self, event):
         
@@ -349,6 +371,9 @@ class TP_controller:
             elif msg.ids == "3":
                 new_task = JointPosition(msg.name, self.MM, 0, np.array(msg.desired).reshape((1,1)))    #TODO later make (desired joint-arg 3) customizable from behavior tree node
                 self.tasks.append(new_task)
+            elif msg.ids == "4":
+                new_task = JointPosition(msg.name, self.MM, 1, np.array(msg.desired).reshape((1,1)))    #TODO later make (desired joint-arg 3) customizable from behavior tree node
+                self.tasks.append(new_task)            
             else:
                 pass
                 
